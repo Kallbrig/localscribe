@@ -14,7 +14,8 @@ data class TranscriptEntity(
     val cleaned: String,
     val language: String,
     val durationSeconds: Float,
-    val mode: String
+    val mode: String,
+    val cleanupBackend: String = CleanupBackend.UNKNOWN.name
 )
 
 fun Transcript.toEntity(createdAtEpochMillis: Long = System.currentTimeMillis()): TranscriptEntity =
@@ -24,7 +25,8 @@ fun Transcript.toEntity(createdAtEpochMillis: Long = System.currentTimeMillis())
         cleaned = cleaned,
         language = language,
         durationSeconds = durationSeconds,
-        mode = mode.name
+        mode = mode.name,
+        cleanupBackend = backend.name
     )
 
 fun TranscriptEntity.toDomain(): Transcript =
@@ -34,5 +36,6 @@ fun TranscriptEntity.toDomain(): Transcript =
         language = language,
         durationSeconds = durationSeconds,
         mode = CleanupMode.valueOf(mode),
-        backend = CleanupBackend.UNKNOWN
+        backend = runCatching { CleanupBackend.valueOf(cleanupBackend) }
+            .getOrDefault(CleanupBackend.UNKNOWN)
     )
