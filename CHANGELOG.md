@@ -10,8 +10,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and s
   pre-loads when a text field gains focus and unloads after 5 idle minutes or under memory
   pressure, so dictations no longer pay model-load latency every time. Pre-warming never
   downloads models; downloads still happen only on first dictation use.
-- History rows and a one-time toast now say when a transcript got basic (rules) cleanup
-  instead of AI cleanup.
+- History rows and a toast (shown once until AI cleanup recovers) now say when a transcript
+  got basic (rules) cleanup instead of AI cleanup.
 
 ### Fixed
 

@@ -1,6 +1,7 @@
 package dev.chaseallbright.localscribe.dictation
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -51,6 +52,7 @@ private fun TestScope.newEngine(fakes: Fakes, prewarmCleaner: Boolean = true) =
         releaseCleaner = fakes.release
     )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ModelSessionEngineTest {
 
     @Test
