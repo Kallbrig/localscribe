@@ -89,6 +89,7 @@ class DictationForegroundService : Service() {
                 DictationController.publishTranscript(transcript)
                 DictationController.setState(DictationUiState.Idle)
             } catch (e: CancellationException) {
+                DictationController.setState(DictationUiState.Idle)
                 throw e
             } catch (e: Exception) {
                 DictationController.setState(DictationUiState.Error(e.message ?: "Dictation failed"))

@@ -14,6 +14,12 @@ class AutoCleaner(modelPath: String?, contextSize: Int = 2048, threads: Int = 4)
     private val delegate: Cleaner
     @Volatile private var closed = false
 
+    /** True when the Qwen LLM backend is loaded; false when this instance has degraded to
+     *  [RuleBasedCleaner] (model missing, invalid, or failed to load). Lets a resident-model
+     *  owner (see ModelSessionEngine) treat a degraded instance as retryable rather than
+     *  caching the fallback for the whole residency. */
+    val isLlmLoaded: Boolean get() = bridge != null
+
     init {
         bridge = modelPath
             ?.let { path -> if (File(path).isFile) path else null }

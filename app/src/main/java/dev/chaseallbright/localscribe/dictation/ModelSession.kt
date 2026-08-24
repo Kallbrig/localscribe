@@ -69,7 +69,8 @@ object ModelSession {
                     AutoCleaner(file?.absolutePath)
                 },
                 releaseWhisper = { it.release() },
-                releaseCleaner = { it.close() }
+                releaseCleaner = { it.close() },
+                cleanerComplete = { it.isLlmLoaded }
             ).also { engine = it }
         }
     }
@@ -100,6 +101,11 @@ object ModelSession {
      * Runs [block] with pinned models; the pin is always released afterward, success or
      * failure. The handles passed to [block] must not be retained beyond it -- they may be
      * released the instant it returns.
+     *
+     * Assumes a single dictation at a time: the native handles are not safe for concurrent
+     * use. Today's UI can only ever have one dictation in flight, so this is never exercised,
+     * but any future second entry point (e.g. a second overlay, a widget) must add its own
+     * serialization before calling this concurrently with an existing dictation.
      */
     suspend fun <T> withModels(
         context: Context,
@@ -119,6 +125,13 @@ object ModelSession {
      * excludes [ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN]: that fires whenever our own UI
      * (e.g. the overlay) is hidden, which happens constantly during normal use and has nothing
      * to do with whether the models should stay resident.
+     *
+     * Honesty note: on Android 14+ (API 34), the platform no longer delivers any of the trim
+     * levels this filter accepts -- `onTrimMemory` callbacks for background apps were removed
+     * in that release. This hook is therefore only effective on API 26-33; on API 34+ devices
+     * the idle timeout is the sole governor of resident model lifetime. That's an accepted
+     * trade-off, not a bug: it costs at most [IDLE_TIMEOUT_MILLIS] of extra residency under
+     * memory pressure on modern devices, rather than leaving models resident indefinitely.
      */
     fun onTrimMemory(level: Int) {
         val underPressure = level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||

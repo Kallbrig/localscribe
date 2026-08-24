@@ -348,4 +348,43 @@ class ModelSessionEngineTest {
         advanceTimeBy(IDLE_MS + 1)
         assertEquals(1, fakes.whisperHandles.single().releases)
     }
+
+    @Test
+    fun `an incomplete (degraded) cleaner is retried on the next acquire instead of cached for the residency`() = runTest {
+        val fakes = Fakes()
+        var cleanerIsComplete = false
+        val engine = ModelSessionEngine(
+            scope = backgroundScope,
+            prewarmCleaner = { true },
+            idleTimeoutMillis = IDLE_MS,
+            loadWhisper = fakes.loadWhisper,
+            loadCleaner = fakes.loadCleaner,
+            releaseWhisper = fakes.release,
+            releaseCleaner = fakes.release,
+            cleanerComplete = { cleanerIsComplete }
+        )
+
+        // First dictation: cleaner loads but comes back incomplete (e.g. a transient Qwen
+        // download failure degraded it to rules-only).
+        val first = engine.acquire()
+        engine.onDictationComplete()
+        assertEquals(1, fakes.cleanerLoads)
+        assertEquals(0, fakes.cleanerHandles.single().releases)
+
+        // Second dictation: still incomplete, so the degraded cleaner must not be cached for
+        // the rest of the residency -- it's retried, a fresh handle is loaded, and the stale
+        // one is released.
+        val second = engine.acquire()
+        engine.onDictationComplete()
+        assertEquals(2, fakes.cleanerLoads)
+        assertNotSame(first.cleaner, second.cleaner)
+        assertEquals(1, fakes.cleanerHandles[0].releases)
+        assertEquals(0, fakes.cleanerHandles[1].releases)
+
+        // Once the cleaner reports complete, it's reused like any other resident model.
+        cleanerIsComplete = true
+        val third = engine.acquire()
+        assertEquals(2, fakes.cleanerLoads)
+        assertSame(second.cleaner, third.cleaner)
+    }
 }

@@ -30,7 +30,12 @@ class ModelSessionEngine<W : Any, C : Any>(
     private val loadWhisper: suspend () -> W,
     private val loadCleaner: suspend () -> C,
     private val releaseWhisper: (W) -> Unit,
-    private val releaseCleaner: (C) -> Unit
+    private val releaseCleaner: (C) -> Unit,
+    /** Whether a resident cleaner is fully loaded (e.g. its LLM backend, not degraded to a
+     *  rules-only fallback). A cleaner for which this returns false is treated as absent by
+     *  [acquire]/[prewarm] -- retried on the next call instead of cached for the rest of the
+     *  residency, so a transient load failure only degrades the dictation it happened on. */
+    private val cleanerComplete: (C) -> Boolean = { true }
 ) {
     private val mutex = Mutex()
     private var whisper: W? = null
@@ -54,8 +59,10 @@ class ModelSessionEngine<W : Any, C : Any>(
             mutex.withLock {
                 cancelIdleTimerLocked()
                 if (whisper == null) whisper = runCatching { loadWhisper() }.getOrNull()
-                if (cleaner == null && runCatching { prewarmCleaner() }.getOrDefault(false)) {
-                    cleaner = runCatching { loadCleaner() }.getOrNull()
+                if (cleaner?.takeIf(cleanerComplete) == null &&
+                    runCatching { prewarmCleaner() }.getOrDefault(false)
+                ) {
+                    runCatching { loadCleaner() }.getOrNull()?.let { replaceCleanerLocked(it) }
                 }
                 // Defense in depth: arm the timer even if the caller never focuses a field
                 // (which would normally trigger onFocusLost) and never dictates.
@@ -76,7 +83,8 @@ class ModelSessionEngine<W : Any, C : Any>(
             mutex.withLock {
                 cancelIdleTimerLocked()
                 val w = whisper ?: loadWhisper().also { whisper = it }
-                val c = cleaner ?: loadCleaner().also { cleaner = it }
+                val c = cleaner?.takeIf(cleanerComplete)
+                    ?: loadCleaner().also { replaceCleanerLocked(it) }
                 inFlight++
                 LoadedModels(w, c)
             }
@@ -176,6 +184,18 @@ class ModelSessionEngine<W : Any, C : Any>(
                 }
             }
         }
+    }
+
+    /**
+     * Must be called while holding [mutex]. Releases any existing (incomplete) cleaner before
+     * storing the new one -- safe only because replacement happens under [mutex] with the pin
+     * about to cover the new handle, so no caller can still be relying on the old one. A
+     * degraded, rules-only cleaner holds no native resources, but it's released anyway for
+     * symmetry with [releaseAllLocked].
+     */
+    private fun replaceCleanerLocked(newCleaner: C) {
+        cleaner?.let(releaseCleaner)
+        cleaner = newCleaner
     }
 
     /** Must be called while holding [mutex]. */
