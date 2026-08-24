@@ -17,10 +17,10 @@ import dev.chaseallbright.localscribe.data.toEntity
 import dev.chaseallbright.localscribe.dictation.DictationController
 import dev.chaseallbright.localscribe.dictation.DictationUiState
 import dev.chaseallbright.localscribe.domain.AutoCleaner
-import dev.chaseallbright.localscribe.domain.CleanupMode
 import dev.chaseallbright.localscribe.domain.DictationPipeline
 import dev.chaseallbright.localscribe.domain.WhisperTranscriber
 import dev.chaseallbright.localscribe.models.ModelManager
+import dev.chaseallbright.localscribe.settings.AppPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -68,14 +68,15 @@ class DictationForegroundService : Service() {
             try {
                 val database = LocalScribeDatabase.getInstance(applicationContext)
                 val vocabulary = database.vocabularyDao().getAllWords()
+                val preferences = AppPreferences(applicationContext)
 
                 val modelManager = ModelManager(applicationContext)
-                val whisperModelFile = modelManager.ensureWhisperModel(modelManager.defaultWhisperTier())
+                val whisperModelFile = modelManager.ensureWhisperModel(preferences.whisperTier)
                 whisper = WhisperBridge.load(whisperModelFile.absolutePath)
                     ?: error("Failed to load speech model")
 
                 val cleanupModelFile = runCatching {
-                    modelManager.ensureCleanupModel(modelManager.defaultCleanupTier())
+                    modelManager.ensureCleanupModel(preferences.cleanupTier)
                 }.getOrNull()
 
                 val pipeline = DictationPipeline(
@@ -83,7 +84,7 @@ class DictationForegroundService : Service() {
                     cleaner = AutoCleaner(cleanupModelFile?.absolutePath)
                 )
 
-                val transcript = pipeline.process(samples, CleanupMode.STANDARD, vocabulary)
+                val transcript = pipeline.process(samples, preferences.cleanupMode, vocabulary)
                 database.transcriptDao().insert(transcript.toEntity())
                 DictationController.publishTranscript(transcript)
                 DictationController.setState(DictationUiState.Idle)

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -26,6 +27,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import dev.chaseallbright.localscribe.ui.history.HistoryScreen
 import dev.chaseallbright.localscribe.ui.onboarding.OnboardingScreen
+import dev.chaseallbright.localscribe.ui.settings.SettingsScreen
 import dev.chaseallbright.localscribe.ui.theme.LocalScribeTheme
 import dev.chaseallbright.localscribe.ui.vocabulary.VocabularyScreen
 
@@ -33,9 +35,10 @@ private sealed class Destination(val route: String, val label: String) {
     data object Home : Destination("home", "Home")
     data object History : Destination("history", "History")
     data object Vocabulary : Destination("vocabulary", "Vocabulary")
+    data object Settings : Destination("settings", "Settings")
 }
 
-private val destinations = listOf(Destination.Home, Destination.History, Destination.Vocabulary)
+private val destinations = listOf(Destination.Home, Destination.History, Destination.Vocabulary, Destination.Settings)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -76,6 +79,7 @@ private fun LocalScribeAppRoot() {
                                     Destination.Home -> Icons.Filled.Home
                                     Destination.History -> Icons.Filled.History
                                     Destination.Vocabulary -> Icons.Filled.TextFields
+                                    Destination.Settings -> Icons.Filled.Settings
                                 },
                                 contentDescription = destination.label
                             )
@@ -94,6 +98,7 @@ private fun LocalScribeAppRoot() {
             composable(Destination.Home.route) { OnboardingScreen() }
             composable(Destination.History.route) { HistoryScreen() }
             composable(Destination.Vocabulary.route) { VocabularyScreen() }
+            composable(Destination.Settings.route) { SettingsScreen() }
         }
     }
 }
