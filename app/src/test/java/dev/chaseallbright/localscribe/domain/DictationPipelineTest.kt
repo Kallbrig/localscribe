@@ -17,7 +17,7 @@ class DictationPipelineTest {
             cleanerReceivedText = text
             cleanerReceivedMode = mode
             cleanerReceivedVocab = vocabulary
-            "cleaned text"
+            CleanResult("cleaned text", CleanupBackend.QWEN)
         }
 
         val pipeline = DictationPipeline(transcriber, cleaner)
@@ -27,6 +27,7 @@ class DictationPipelineTest {
         assertEquals("cleaned text", result.cleaned)
         assertEquals("en", result.language)
         assertEquals(CleanupMode.STANDARD, result.mode)
+        assertEquals(CleanupBackend.QWEN, result.backend)
         assertEquals(1.0f, result.durationSeconds, 0.001f)
 
         assertEquals("raw text", cleanerReceivedText)
@@ -39,11 +40,23 @@ class DictationPipelineTest {
         val samples = FloatArray(32_000) // 2 seconds
         val pipeline = DictationPipeline(
             transcriber = Transcriber { _, _ -> TranscriptionResult("x", "en") },
-            cleaner = Cleaner { text, _, _ -> text }
+            cleaner = Cleaner { text, _, _ -> CleanResult(text, CleanupBackend.RULES) }
         )
 
         val result = pipeline.process(samples, CleanupMode.CASUAL, emptyList())
 
         assertEquals(2.0f, result.durationSeconds, 0.001f)
+    }
+
+    @Test
+    fun `cleaner backend is carried onto the transcript`() {
+        val pipeline = DictationPipeline(
+            transcriber = Transcriber { _, _ -> TranscriptionResult("x", "en") },
+            cleaner = Cleaner { text, _, _ -> CleanResult(text, CleanupBackend.RULES_FALLBACK) }
+        )
+
+        val result = pipeline.process(FloatArray(16_000), CleanupMode.STANDARD, emptyList())
+
+        assertEquals(CleanupBackend.RULES_FALLBACK, result.backend)
     }
 }

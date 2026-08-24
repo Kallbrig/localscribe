@@ -2,7 +2,7 @@ package dev.chaseallbright.localscribe.domain
 
 /** Deterministic offline fallback used when no GGUF cleanup model is loaded. */
 class RuleBasedCleaner : Cleaner {
-    override fun clean(text: String, mode: CleanupMode, vocabulary: List<String>): String {
+    override fun clean(text: String, mode: CleanupMode, vocabulary: List<String>): CleanResult {
         var value = TextCleanupUtils.SPACES.replace(text, " ").trim()
         value = TextCleanupUtils.REPEATED.replace(value, "$1")
         if (mode != CleanupMode.INFORMAL) {
@@ -16,6 +16,6 @@ class RuleBasedCleaner : Cleaner {
                 value += "."
             }
         }
-        return TextCleanupUtils.restoreWords(value, vocabulary)
+        return CleanResult(TextCleanupUtils.restoreWords(value, vocabulary), CleanupBackend.RULES)
     }
 }

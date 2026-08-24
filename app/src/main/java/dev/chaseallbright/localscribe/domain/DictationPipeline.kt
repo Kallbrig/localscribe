@@ -10,6 +10,6 @@ class DictationPipeline(
         val result = transcriber.transcribe(samples, vocabulary)
         val cleaned = cleaner.clean(result.text, mode, vocabulary)
         val durationSeconds = samples.size.toFloat() / SAMPLE_RATE_HZ
-        return Transcript(result.text, cleaned, result.language, durationSeconds, mode)
+        return Transcript(result.text, cleaned.text, result.language, durationSeconds, mode, cleaned.backend)
     }
 }

@@ -2,6 +2,7 @@ package dev.chaseallbright.localscribe.data
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import dev.chaseallbright.localscribe.domain.CleanupBackend
 import dev.chaseallbright.localscribe.domain.CleanupMode
 import dev.chaseallbright.localscribe.domain.Transcript
 
@@ -32,5 +33,6 @@ fun TranscriptEntity.toDomain(): Transcript =
         cleaned = cleaned,
         language = language,
         durationSeconds = durationSeconds,
-        mode = CleanupMode.valueOf(mode)
+        mode = CleanupMode.valueOf(mode),
+        backend = CleanupBackend.UNKNOWN
     )

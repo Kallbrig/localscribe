@@ -5,7 +5,8 @@ data class Transcript(
     val cleaned: String,
     val language: String,
     val durationSeconds: Float,
-    val mode: CleanupMode
+    val mode: CleanupMode,
+    val backend: CleanupBackend
 )
 
 data class TranscriptionResult(
