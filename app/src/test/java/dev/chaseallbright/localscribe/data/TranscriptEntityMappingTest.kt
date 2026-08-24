@@ -18,9 +18,8 @@ class TranscriptEntityMappingTest {
     )
 
     @Test
-    fun `backend round-trips through the entity`() {
-        val roundTripped = transcript.toEntity(createdAtEpochMillis = 123L).toDomain()
-        assertEquals(CleanupBackend.RULES_FALLBACK, roundTripped.backend)
+    fun `transcript round-trips through the entity`() {
+        assertEquals(transcript, transcript.toEntity(createdAtEpochMillis = 123L).toDomain())
     }
 
     @Test

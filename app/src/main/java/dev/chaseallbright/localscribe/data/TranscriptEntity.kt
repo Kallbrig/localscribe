@@ -1,5 +1,6 @@
 package dev.chaseallbright.localscribe.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import dev.chaseallbright.localscribe.domain.CleanupBackend
@@ -15,6 +16,7 @@ data class TranscriptEntity(
     val language: String,
     val durationSeconds: Float,
     val mode: String,
+    @ColumnInfo(defaultValue = "UNKNOWN")
     val cleanupBackend: String = CleanupBackend.UNKNOWN.name
 )
 
