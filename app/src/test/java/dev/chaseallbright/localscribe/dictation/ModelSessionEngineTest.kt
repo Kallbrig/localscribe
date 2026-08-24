@@ -118,9 +118,12 @@ class ModelSessionEngineTest {
         engine.onFocusLost()
         advanceTimeBy(IDLE_MS / 2)
         engine.prewarm() // user focused a field again
-        advanceTimeBy(IDLE_MS)
+        advanceTimeBy(IDLE_MS / 2)
 
         assertEquals(0, fakes.whisperHandles.single().releases)
+
+        advanceTimeBy(IDLE_MS) // crosses the deadline armed by the second prewarm
+        assertEquals(1, fakes.whisperHandles.single().releases)
     }
 
     @Test
