@@ -12,12 +12,14 @@ import dev.chaseallbright.localscribe.DICTATION_NOTIFICATION_CHANNEL_ID
 import dev.chaseallbright.localscribe.R
 import dev.chaseallbright.localscribe.audio.AudioRecorder
 import dev.chaseallbright.localscribe.bridge.WhisperBridge
+import dev.chaseallbright.localscribe.data.LocalScribeDatabase
+import dev.chaseallbright.localscribe.data.toEntity
 import dev.chaseallbright.localscribe.dictation.DictationController
 import dev.chaseallbright.localscribe.dictation.DictationUiState
 import dev.chaseallbright.localscribe.domain.AutoCleaner
+import dev.chaseallbright.localscribe.domain.CleanupMode
 import dev.chaseallbright.localscribe.domain.DictationPipeline
 import dev.chaseallbright.localscribe.domain.WhisperTranscriber
-import dev.chaseallbright.localscribe.domain.CleanupMode
 import dev.chaseallbright.localscribe.models.ModelManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -64,6 +66,9 @@ class DictationForegroundService : Service() {
         serviceScope.launch {
             var whisper: WhisperBridge? = null
             try {
+                val database = LocalScribeDatabase.getInstance(applicationContext)
+                val vocabulary = database.vocabularyDao().getAllWords()
+
                 val modelManager = ModelManager(applicationContext)
                 val whisperModelFile = modelManager.ensureWhisperModel(modelManager.defaultWhisperTier())
                 whisper = WhisperBridge.load(whisperModelFile.absolutePath)
@@ -78,7 +83,8 @@ class DictationForegroundService : Service() {
                     cleaner = AutoCleaner(cleanupModelFile?.absolutePath)
                 )
 
-                val transcript = pipeline.process(samples, CleanupMode.STANDARD, emptyList())
+                val transcript = pipeline.process(samples, CleanupMode.STANDARD, vocabulary)
+                database.transcriptDao().insert(transcript.toEntity())
                 DictationController.publishTranscript(transcript)
                 DictationController.setState(DictationUiState.Idle)
             } catch (e: Exception) {
