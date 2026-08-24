@@ -1,7 +1,10 @@
-# Whisper Flow Android — Implementation Plan
+# LocalScribe (Android) — Implementation Plan
 
 Derived from `docs/superpowers/specs/2026-08-23-android-app-design.md`. Executed
 autonomously, no approval checkpoints between phases (per explicit user instruction).
+
+Branding locked 2026-08-23: app name is **LocalScribe** (not "Whisper Flow"), package
+root `dev.chaseallbright.localscribe`. See the spec's naming note for why.
 
 ## Phase 0 — Toolchain bootstrap
 - Download portable JDK 17 (Temurin), Android `cmdline-tools`, `platform-tools`,
@@ -12,10 +15,11 @@ autonomously, no approval checkpoints between phases (per explicit user instruct
 
 ## Phase 1 — Repo & project scaffold
 - `settings.gradle.kts`, root `build.gradle.kts`, version catalog, `app` module with Compose
-  set up, package `dev.<org>.whisperflow` (placeholder namespace), `AndroidManifest.xml`
+  set up, package `dev.chaseallbright.localscribe`, `AndroidManifest.xml`
   with the four permissions (`RECORD_AUDIO`, overlay, accessibility service declaration,
-  `POST_NOTIFICATIONS`) and service declarations.
-- `.gitignore`, `LICENSE` (match desktop's license), root `README.md` stub.
+  `POST_NOTIFICATIONS`) and service declarations. App label "LocalScribe".
+- `.gitignore`, `LICENSE` (MIT, matching desktop's license — copyright holder "LocalScribe
+  contributors"), root `README.md` stub titled "LocalScribe".
 
 ## Phase 2 — Native engines
 - Add `whisper.cpp` and `llama.cpp` as git submodules pinned to a known-good release tag.

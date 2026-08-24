@@ -1,17 +1,30 @@
-# Whisper Flow Android — Design Spec
+# LocalScribe (Android) — Design Spec
 
 Status: Approved by user 2026-08-23. Build proceeds without further check-ins.
 
+Naming note (locked 2026-08-23, do not revisit): the app is branded **LocalScribe** —
+not "Whisper Flow" / "WhisperFlow". That name collides with the commercial product Wispr
+Flow, which this UX is inspired by; the desktop sibling avoided the same collision by
+branding itself "LocalScribe Flow" rather than "WhisperFlow". This Android app drops
+"Flow" entirely per explicit user decision — it is **"LocalScribe"**, full stop. Apply
+this consistently: Android `applicationId` root `dev.chaseallbright.localscribe`, app
+label "LocalScribe", README/LICENSE/repo title "LocalScribe", Kotlin package root
+`dev.chaseallbright.localscribe`. Do not use "whisperflow", "whisper-flow", or "Whisper
+Flow" anywhere in the new repo's code, package names, strings, or docs except when
+factually referring to the upstream `whisper.cpp` library or the reference desktop
+project by its real name.
+
 ## 1. Purpose
 
-A standalone, open-source Android app that replicates the WhisperFlow UX: focus any text
-field in any app, tap a floating draggable mic bubble, speak, tap a checkmark, and the
-cleaned-up transcript is inserted directly into that field (or copied to the clipboard if
-direct insertion isn't possible). Everything runs on-device: speech-to-text and text
-cleanup both execute locally via native ML runtimes, with no cloud calls, no accounts, no
-telemetry — same philosophy as the sibling desktop project, LocalScribe Flow, but this is a
-**fully independent product**. No code, data, settings, vocabulary, or history is ever
-shared or synced between the two. They do not know about each other at runtime.
+A standalone, open-source Android app that replicates the Wispr Flow-style UX: focus any
+text field in any app, tap a floating draggable mic bubble, speak, tap a checkmark, and
+the cleaned-up transcript is inserted directly into that field (or copied to the
+clipboard if direct insertion isn't possible). Everything runs on-device: speech-to-text
+and text cleanup both execute locally via native ML runtimes, with no cloud calls, no
+accounts, no telemetry — same philosophy as the sibling desktop project, LocalScribe
+Flow, but this is a **fully independent product**. No code, data, settings, vocabulary,
+or history is ever shared or synced between the two. They do not know about each other
+at runtime.
 
 Reference desktop project (read-only inspiration, not a dependency):
 `C:\Users\Owner\Desktop\whisper-flow-alt` — see its `docs/ARCHITECTURE.md`, `domain.py`,
