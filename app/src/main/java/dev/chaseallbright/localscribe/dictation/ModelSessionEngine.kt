@@ -1,7 +1,6 @@
 package dev.chaseallbright.localscribe.dictation
 
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -17,16 +16,6 @@ data class LoadedModels<W : Any, C : Any>(val whisper: W, val cleaner: C)
  *
  * All state is guarded by [mutex]; loads happen while holding it, so a concurrent acquire
  * waits for an in-flight prewarm load instead of double-loading.
- *
- * [prewarm], [onDictationComplete], [onFocusLost], [invalidate], and [onTrimMemory] are called
- * from non-suspend Android callbacks (focus listeners, lifecycle/memory callbacks), so they are
- * fire-and-forget: each launches its mutex-guarded state transition with
- * [CoroutineStart.UNDISPATCHED] so it begins running immediately on the calling thread (falling
- * back to [scope]'s dispatcher only if it actually has to suspend — e.g. waiting on a contended
- * mutex, or a real I/O-bound load) rather than merely being enqueued on [scope]. This keeps the
- * caller-visible effects of these calls prompt and deterministic instead of dependent on when
- * [scope] next gets to run queued work. The idle timer's own delayed release job is started
- * normally, since it must genuinely run asynchronously without blocking the caller.
  */
 class ModelSessionEngine<W : Any, C : Any>(
     private val scope: CoroutineScope,
@@ -47,7 +36,7 @@ class ModelSessionEngine<W : Any, C : Any>(
     /** Best-effort background load; failures are swallowed and retried on the next call. */
     fun prewarm() {
         idleJob?.cancel()
-        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        scope.launch {
             mutex.withLock {
                 if (whisper == null) whisper = runCatching { loadWhisper() }.getOrNull()
                 if (prewarmCleaner && cleaner == null) cleaner = runCatching { loadCleaner() }.getOrNull()
@@ -71,7 +60,7 @@ class ModelSessionEngine<W : Any, C : Any>(
     }
 
     fun onDictationComplete() {
-        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        scope.launch {
             mutex.withLock {
                 dictationInFlight = false
                 if (pendingInvalidate) {
@@ -84,7 +73,7 @@ class ModelSessionEngine<W : Any, C : Any>(
     }
 
     fun onFocusLost() {
-        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        scope.launch {
             val idle = mutex.withLock { !dictationInFlight }
             if (idle) restartIdleTimer()
         }
@@ -92,7 +81,7 @@ class ModelSessionEngine<W : Any, C : Any>(
 
     /** Models were reconfigured (tier change); drop them so the next load picks up new settings. */
     fun invalidate() {
-        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        scope.launch {
             mutex.withLock {
                 if (dictationInFlight) pendingInvalidate = true else releaseAllLocked()
             }
@@ -100,7 +89,7 @@ class ModelSessionEngine<W : Any, C : Any>(
     }
 
     fun onTrimMemory() {
-        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        scope.launch {
             mutex.withLock { if (!dictationInFlight) releaseAllLocked() }
         }
     }

@@ -2,7 +2,7 @@ package dev.chaseallbright.localscribe.dictation
 
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
-import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -54,7 +54,7 @@ class ModelSessionEngineTest {
 
         engine.prewarm()
         engine.prewarm()
-        advanceUntilIdle()
+        runCurrent()
 
         assertEquals(1, fakes.whisperLoads)
         assertEquals(1, fakes.cleanerLoads)
@@ -66,7 +66,7 @@ class ModelSessionEngineTest {
         val engine = newEngine(fakes, prewarmCleaner = false)
 
         engine.prewarm()
-        advanceUntilIdle()
+        runCurrent()
         assertEquals(1, fakes.whisperLoads)
         assertEquals(0, fakes.cleanerLoads)
 
@@ -80,7 +80,7 @@ class ModelSessionEngineTest {
         val engine = newEngine(fakes)
 
         engine.prewarm()
-        advanceUntilIdle()
+        runCurrent()
         val models = engine.acquire()
 
         assertEquals(1, fakes.whisperLoads)
@@ -108,7 +108,7 @@ class ModelSessionEngineTest {
         val engine = newEngine(fakes)
 
         engine.prewarm()
-        advanceUntilIdle()
+        runCurrent()
         engine.onFocusLost()
         advanceTimeBy(IDLE_MS / 2)
         engine.prewarm() // user focused a field again
@@ -140,7 +140,7 @@ class ModelSessionEngineTest {
         val first = engine.acquire()
         engine.onDictationComplete()
         engine.invalidate()
-        advanceUntilIdle()
+        runCurrent()
         assertTrue(fakes.whisperHandles.single().released)
 
         val second = engine.acquire()
@@ -155,11 +155,11 @@ class ModelSessionEngineTest {
 
         engine.acquire()
         engine.invalidate()
-        advanceUntilIdle()
+        runCurrent()
         assertFalse(fakes.whisperHandles.single().released)
 
         engine.onDictationComplete()
-        advanceUntilIdle()
+        runCurrent()
         assertTrue(fakes.whisperHandles.single().released)
     }
 
@@ -184,7 +184,7 @@ class ModelSessionEngineTest {
 
         fakes.whisperShouldFail = true
         engine.prewarm()
-        advanceUntilIdle()
+        runCurrent()
 
         fakes.whisperShouldFail = false
         val models = engine.acquire()
@@ -199,12 +199,12 @@ class ModelSessionEngineTest {
 
         engine.acquire()
         engine.onTrimMemory()
-        advanceUntilIdle()
+        runCurrent()
         assertFalse(fakes.whisperHandles.single().released)
 
         engine.onDictationComplete()
         engine.onTrimMemory()
-        advanceUntilIdle()
+        runCurrent()
         assertTrue(fakes.whisperHandles.single().released)
     }
 }
