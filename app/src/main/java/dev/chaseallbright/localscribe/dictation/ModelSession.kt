@@ -26,7 +26,13 @@ import kotlinx.coroutines.launch
 object ModelSession {
     private const val TAG = "ModelSession"
 
-    /** How long models stay resident with no focus or dictation activity. */
+    /**
+     * How long models stay resident with no focus or dictation activity. This is a rolling
+     * window, not a hard cap on total residency: each [prewarm] (e.g. from a focus event) and
+     * each completed dictation re-arms the timer, so continuous activity -- repeated field
+     * focus, back-to-back dictations -- can keep the models resident well beyond a single
+     * [IDLE_TIMEOUT_MILLIS] window.
+     */
     private const val IDLE_TIMEOUT_MILLIS = 5 * 60 * 1000L
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -127,11 +133,12 @@ object ModelSession {
      * to do with whether the models should stay resident.
      *
      * Honesty note: on Android 14+ (API 34), the platform no longer delivers any of the trim
-     * levels this filter accepts -- `onTrimMemory` callbacks for background apps were removed
-     * in that release. This hook is therefore only effective on API 26-33; on API 34+ devices
-     * the idle timeout is the sole governor of resident model lifetime. That's an accepted
-     * trade-off, not a bug: it costs at most [IDLE_TIMEOUT_MILLIS] of extra residency under
-     * memory pressure on modern devices, rather than leaving models resident indefinitely.
+     * levels *this filter accepts* -- [ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN] is still
+     * delivered as before, but that's the level deliberately excluded above, so it doesn't help.
+     * This hook is therefore only effective on API 26-33; on API 34+ devices the idle timeout
+     * is the sole governor of resident model lifetime. That's an accepted trade-off, not a bug:
+     * it costs at most [IDLE_TIMEOUT_MILLIS] of extra residency under memory pressure on modern
+     * devices, rather than leaving models resident indefinitely.
      */
     fun onTrimMemory(level: Int) {
         val underPressure = level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||

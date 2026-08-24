@@ -226,6 +226,9 @@ class ModelSessionEngineTest {
 
         engine.acquire()
         engine.acquire()
+        // The second, overlapping acquire must reuse the cleaner the first one loaded -- not
+        // replace it, which would release a handle the first dictation still holds.
+        assertEquals(1, fakes.cleanerLoads)
         engine.onDictationComplete()
         engine.onTrimMemory()
         runCurrent()
@@ -367,7 +370,12 @@ class ModelSessionEngineTest {
         // First dictation: cleaner loads but comes back incomplete (e.g. a transient Qwen
         // download failure degraded it to rules-only).
         val first = engine.acquire()
+        // onDictationComplete's decrement runs via scope.launch, so a following acquire() must
+        // wait for it (runCurrent) -- otherwise inFlight is still 1 and the in-flight guard
+        // added for the mid-dictation-replace bug would (correctly) make the next acquire reuse
+        // the stale handle, which isn't what this test is exercising.
         engine.onDictationComplete()
+        runCurrent()
         assertEquals(1, fakes.cleanerLoads)
         assertEquals(0, fakes.cleanerHandles.single().releases)
 
@@ -376,6 +384,7 @@ class ModelSessionEngineTest {
         // one is released.
         val second = engine.acquire()
         engine.onDictationComplete()
+        runCurrent()
         assertEquals(2, fakes.cleanerLoads)
         assertNotSame(first.cleaner, second.cleaner)
         assertEquals(1, fakes.cleanerHandles[0].releases)
@@ -386,5 +395,43 @@ class ModelSessionEngineTest {
         val third = engine.acquire()
         assertEquals(2, fakes.cleanerLoads)
         assertSame(second.cleaner, third.cleaner)
+    }
+
+    @Test
+    fun `prewarm never replaces the cleaner while a dictation is in flight`() = runTest {
+        val fakes = Fakes()
+        var cleanerIsComplete = false
+        val engine = ModelSessionEngine(
+            scope = backgroundScope,
+            prewarmCleaner = { true },
+            idleTimeoutMillis = IDLE_MS,
+            loadWhisper = fakes.loadWhisper,
+            loadCleaner = fakes.loadCleaner,
+            releaseWhisper = fakes.release,
+            releaseCleaner = fakes.release,
+            cleanerComplete = { cleanerIsComplete }
+        )
+
+        // Dictation 1 acquires a degraded (incomplete) cleaner and is still in flight.
+        val first = engine.acquire()
+        assertEquals(1, fakes.cleanerLoads)
+
+        // A focus event fires a prewarm mid-dictation. The resident cleaner is incomplete and
+        // the prewarm predicate says yes -- but a dictation is using it right now, so it must
+        // not be replaced or released out from under it.
+        engine.prewarm()
+        runCurrent()
+        assertEquals(1, fakes.cleanerLoads)
+        assertEquals(0, fakes.cleanerHandles.single().releases)
+        assertSame(first.cleaner, fakes.cleanerHandles.single())
+
+        // Once the dictation completes, the still-incomplete cleaner is fair game again.
+        engine.onDictationComplete()
+        runCurrent()
+
+        val second = engine.acquire()
+        assertEquals(2, fakes.cleanerLoads)
+        assertNotSame(first.cleaner, second.cleaner)
+        assertEquals(1, fakes.cleanerHandles[0].releases)
     }
 }

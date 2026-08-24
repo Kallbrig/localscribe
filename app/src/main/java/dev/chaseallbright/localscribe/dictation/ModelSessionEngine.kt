@@ -59,7 +59,10 @@ class ModelSessionEngine<W : Any, C : Any>(
             mutex.withLock {
                 cancelIdleTimerLocked()
                 if (whisper == null) whisper = runCatching { loadWhisper() }.getOrNull()
-                if (cleaner?.takeIf(cleanerComplete) == null &&
+                // Only consider a cleaner (re)load while idle -- a dictation may be mid-flight
+                // using the resident cleaner (e.g. a focus event races an active dictation), and
+                // replacing it out from under that caller would release a handle still in use.
+                if (inFlight == 0 && cleaner?.takeIf(cleanerComplete) == null &&
                     runCatching { prewarmCleaner() }.getOrDefault(false)
                 ) {
                     runCatching { loadCleaner() }.getOrNull()?.let { replaceCleanerLocked(it) }
@@ -83,7 +86,11 @@ class ModelSessionEngine<W : Any, C : Any>(
             mutex.withLock {
                 cancelIdleTimerLocked()
                 val w = whisper ?: loadWhisper().also { whisper = it }
-                val c = cleaner?.takeIf(cleanerComplete)
+                // Reuse the resident cleaner when it's complete, OR when another dictation is
+                // already in flight (its handle must not be replaced/released out from under
+                // that caller). Only an incomplete cleaner with nothing else running on it is
+                // safe to replace.
+                val c = cleaner?.takeIf { cleanerComplete(it) || inFlight > 0 }
                     ?: loadCleaner().also { replaceCleanerLocked(it) }
                 inFlight++
                 LoadedModels(w, c)
@@ -187,9 +194,10 @@ class ModelSessionEngine<W : Any, C : Any>(
     }
 
     /**
-     * Must be called while holding [mutex]. Releases any existing (incomplete) cleaner before
-     * storing the new one -- safe only because replacement happens under [mutex] with the pin
-     * about to cover the new handle, so no caller can still be relying on the old one. A
+     * Must be called while holding [mutex], and only when it's safe to release any existing
+     * cleaner -- i.e. [cleaner] is `null` (first load), or no dictation is currently in flight
+     * ([inFlight] == 0). Both call sites ([acquire] and [prewarm]) already guarantee this before
+     * calling here; violating it would release a handle a caller is still relying on. A
      * degraded, rules-only cleaner holds no native resources, but it's released anyway for
      * symmetry with [releaseAllLocked].
      */
