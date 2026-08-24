@@ -43,7 +43,7 @@ private class Fakes {
 private fun TestScope.newEngine(fakes: Fakes, prewarmCleaner: Boolean = true) =
     ModelSessionEngine(
         scope = backgroundScope,
-        prewarmCleaner = prewarmCleaner,
+        prewarmCleaner = { prewarmCleaner },
         idleTimeoutMillis = IDLE_MS,
         loadWhisper = fakes.loadWhisper,
         loadCleaner = fakes.loadCleaner,
@@ -299,5 +299,31 @@ class ModelSessionEngineTest {
         engine.onTrimMemory()
         runCurrent()
         assertEquals(1, fakes.whisperHandles.single().releases)
+    }
+
+    @Test
+    fun `prewarm re-evaluates the cleaner predicate on every call`() = runTest {
+        val fakes = Fakes()
+        var shouldPrewarmCleaner = false
+        val engine = ModelSessionEngine(
+            scope = backgroundScope,
+            prewarmCleaner = { shouldPrewarmCleaner },
+            idleTimeoutMillis = IDLE_MS,
+            loadWhisper = fakes.loadWhisper,
+            loadCleaner = fakes.loadCleaner,
+            releaseWhisper = fakes.release,
+            releaseCleaner = fakes.release
+        )
+
+        engine.prewarm()
+        runCurrent()
+        assertEquals(1, fakes.whisperLoads)
+        assertEquals(0, fakes.cleanerLoads)
+
+        shouldPrewarmCleaner = true
+        engine.prewarm()
+        runCurrent()
+        assertEquals(1, fakes.whisperLoads)
+        assertEquals(1, fakes.cleanerLoads)
     }
 }

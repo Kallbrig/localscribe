@@ -32,14 +32,26 @@ object ModelSession {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     @Volatile private var engine: ModelSessionEngine<WhisperBridge, AutoCleaner>? = null
 
+    /** RAM is fixed for the process lifetime; read the (binder-backed) total once and reuse it,
+     *  so per-focus-event prewarm calls cost at most a file stat, not a binder round trip. */
+    @Volatile private var totalRamGbCached: Double? = null
+
     private fun engineFor(context: Context): ModelSessionEngine<WhisperBridge, AutoCleaner> {
         engine?.let { return it }
         synchronized(this) {
             engine?.let { return it }
             val appContext = context.applicationContext
+            val ramGb = totalRamGbCached
+                ?: ModelManager(appContext).totalRamGb().also { totalRamGbCached = it }
             return ModelSessionEngine(
                 scope = scope,
-                prewarmCleaner = ModelManager(appContext).totalRamGb() >= RamTier.CLEANUP_UPGRADE_MIN_GB,
+                // Re-checked on every prewarm() call by the engine (only while the cleaner is
+                // still unloaded), so a cleanup download that finishes later is picked up
+                // without a fresh engine -- and a missing cleanup model never blocks whisper.
+                prewarmCleaner = {
+                    ramGb >= RamTier.CLEANUP_UPGRADE_MIN_GB &&
+                        ModelManager(appContext).isCleanupModelReady(AppPreferences(appContext).cleanupTier)
+                },
                 idleTimeoutMillis = IDLE_TIMEOUT_MILLIS,
                 loadWhisper = {
                     val preferences = AppPreferences(appContext)
@@ -66,10 +78,13 @@ object ModelSession {
 
     /**
      * Best-effort background warm-up, triggered by focus events. Never downloads: a focused
-     * text field must not silently kick off a 150MB-1.1GB fetch, so this only pre-warms models
-     * that are already on disk (downloads happen on the [withModels]/acquire path, when the
-     * user has explicitly started dictating, matching Settings' "downloads on first use" copy).
-     * Also keeps the first-call `totalRamGb()` binder IPC off the caller's thread.
+     * text field must not silently kick off a 150MB-1.1GB fetch, so this only pre-warms the
+     * whisper model when it's already on disk (downloads happen on the [withModels]/acquire
+     * path, when the user has explicitly started dictating, matching Settings' "downloads on
+     * first use" copy). Whether the cleanup model also gets pre-warmed is decided per call by
+     * the engine's cleaner predicate -- a missing cleanup model must never block whisper
+     * prewarm, so that gate lives there, not here. Also keeps the first-call `totalRamGb()`
+     * binder IPC off the caller's thread (see [totalRamGbCached]).
      */
     fun prewarm(context: Context) {
         val appContext = context.applicationContext
@@ -78,12 +93,6 @@ object ModelSession {
             val manager = ModelManager(appContext)
             if (!manager.isWhisperModelReady(preferences.whisperTier)) {
                 Log.d(TAG, "Skipping prewarm: whisper model not downloaded yet")
-                return@launch
-            }
-            if (manager.totalRamGb() >= RamTier.CLEANUP_UPGRADE_MIN_GB &&
-                !manager.isCleanupModelReady(preferences.cleanupTier)
-            ) {
-                Log.d(TAG, "Skipping prewarm: cleanup model not downloaded yet")
                 return@launch
             }
             engineFor(appContext).prewarm()

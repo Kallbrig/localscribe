@@ -22,7 +22,10 @@ data class LoadedModels<W : Any, C : Any>(val whisper: W, val cleaner: C)
  */
 class ModelSessionEngine<W : Any, C : Any>(
     private val scope: CoroutineScope,
-    private val prewarmCleaner: Boolean,
+    /** Re-evaluated on every [prewarm] call (only when the cleaner isn't already resident), so
+     *  a condition that changes after construction -- e.g. a cleanup model finishing its
+     *  download -- is picked up without needing a fresh engine. */
+    private val prewarmCleaner: suspend () -> Boolean,
     private val idleTimeoutMillis: Long,
     private val loadWhisper: suspend () -> W,
     private val loadCleaner: suspend () -> C,
@@ -51,7 +54,7 @@ class ModelSessionEngine<W : Any, C : Any>(
             mutex.withLock {
                 cancelIdleTimerLocked()
                 if (whisper == null) whisper = runCatching { loadWhisper() }.getOrNull()
-                if (prewarmCleaner && cleaner == null) cleaner = runCatching { loadCleaner() }.getOrNull()
+                if (cleaner == null && prewarmCleaner()) cleaner = runCatching { loadCleaner() }.getOrNull()
                 // Defense in depth: arm the timer even if the caller never focuses a field
                 // (which would normally trigger onFocusLost) and never dictates.
                 if (inFlight == 0) armIdleTimerLocked()
