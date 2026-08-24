@@ -6,11 +6,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import dev.chaseallbright.localscribe.ui.onboarding.OnboardingScreen
 import dev.chaseallbright.localscribe.ui.theme.LocalScribeTheme
 
 class MainActivity : ComponentActivity() {
@@ -20,14 +18,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             LocalScribeTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    OnboardingPlaceholder(modifier = Modifier.padding(innerPadding))
+                    OnboardingScreen(modifier = Modifier.padding(innerPadding))
                 }
             }
         }
     }
-}
-
-@Composable
-private fun OnboardingPlaceholder(modifier: Modifier = Modifier) {
-    Text(text = "LocalScribe", modifier = modifier, style = MaterialTheme.typography.headlineMedium)
 }

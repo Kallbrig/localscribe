@@ -3,4 +3,9 @@
     <string name="accessibility_service_description">Lets LocalScribe show a floating dictation
         button over text fields in other apps and insert transcribed text into them. Audio,
         transcripts, and vocabulary never leave this device.</string>
+    <string name="dictation_notification_channel_name">Dictation</string>
+    <string name="dictation_notification_channel_description">Shows while LocalScribe is recording or processing a dictation</string>
+    <string name="dictation_notification_recording">Listening…</string>
+    <string name="dictation_notification_processing">Cleaning up your dictation…</string>
+    <string name="overlay_notification_text">Dictation bubble is active</string>
 </resources>
