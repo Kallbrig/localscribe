@@ -1,5 +1,6 @@
 package dev.chaseallbright.localscribe.dictation
 
+import android.util.Log
 import dev.chaseallbright.localscribe.domain.Transcript
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,6 +37,7 @@ object DictationController {
     val transcriptReady: SharedFlow<Transcript> = _transcriptReady.asSharedFlow()
 
     fun setState(newState: DictationUiState) {
+        Log.d("DictationController", "state ${_state.value} -> $newState")
         _state.value = newState
     }
 

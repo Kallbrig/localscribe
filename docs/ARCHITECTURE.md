@@ -52,6 +52,18 @@ itself.
 There are no outbound inference calls. Network access occurs only when Hugging Face
 downloads a model you selected during setup or in Settings.
 
+## A known, deliberate gap: some screens hide every overlay, including this one
+
+A handful of system/app screens that handle sensitive input (Android Contacts' "Create
+contact"/"Edit contact" editor is one confirmed example) set
+`WindowManager.LayoutParams.PRIVATE_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS` on their own
+window. This is Android forcibly hiding *every* non-system `TYPE_APPLICATION_OVERLAY`
+window app-wide while that screen is focused -- not something this app can detect or work
+around, and not specific to LocalScribe (any floating-bubble app is affected identically).
+The bubble reappears normally the moment focus moves to a screen that doesn't set that
+flag. Verified during Phase 9 emulator testing: confirmed absent on ordinary text fields
+(e.g. the Messages compose screen) and present on the Contacts editor specifically.
+
 ## Why three services instead of one
 
 `OverlayBubbleService` (the WindowManager overlay UI), `DictationForegroundService`

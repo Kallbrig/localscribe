@@ -1,13 +1,16 @@
 package dev.chaseallbright.localscribe.service
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import dev.chaseallbright.localscribe.DICTATION_NOTIFICATION_CHANNEL_ID
 import dev.chaseallbright.localscribe.R
 import dev.chaseallbright.localscribe.audio.AudioRecorder
@@ -47,6 +50,13 @@ class DictationForegroundService : Service() {
 
     private fun startRecording() {
         if (isRecording) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            DictationController.setState(DictationUiState.Error("Microphone permission not granted"))
+            stopSelf()
+            return
+        }
         startForegroundWithNotification(getString(R.string.dictation_notification_recording))
         audioRecorder.start()
         isRecording = true

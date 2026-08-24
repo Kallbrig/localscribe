@@ -12,6 +12,9 @@ android {
 
         ndk {
             abiFilters += "arm64-v8a"
+            // x86_64 is built too so this runs on the emulator (and any x86_64 device);
+            // arm64-v8a alone covers the overwhelming majority of real hardware since 2019.
+            abiFilters += "x86_64"
         }
 
         externalNativeBuild {

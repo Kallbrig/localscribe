@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import androidx.core.content.ContextCompat
 import dev.chaseallbright.localscribe.dictation.DictationController
 import dev.chaseallbright.localscribe.dictation.DictationUiState
@@ -37,11 +38,24 @@ class DictationAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
         when (event.eventType) {
-            AccessibilityEvent.TYPE_VIEW_FOCUSED,
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> updateFocusFromEvent(event)
+            // Window-content-changed fires for arbitrary subtree changes -- its source is
+            // often a parent container, not the focused view, so it can't be used to track
+            // focus (it was overwriting a correct Idle transition with a spurious Hidden one).
+            AccessibilityEvent.TYPE_VIEW_FOCUSED -> updateFocusFromEvent(event)
+            // Fires for the IME's own window opening/closing too, not just real app switches
+            // -- only treat it as "left the app" if the foreground *application* window
+            // (as opposed to the keyboard's TYPE_INPUT_METHOD window) actually changed.
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                if (activeApplicationPackage() != focusedEditableNode?.packageName) {
+                    clearFocus()
+                }
+            }
         }
     }
+
+    private fun activeApplicationPackage(): CharSequence? =
+        windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.isActive }
+            ?.root?.packageName
 
     private fun updateFocusFromEvent(event: AccessibilityEvent) {
         val source = event.source
