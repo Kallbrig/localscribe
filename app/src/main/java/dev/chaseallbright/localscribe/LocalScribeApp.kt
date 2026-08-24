@@ -4,6 +4,7 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
+import dev.chaseallbright.localscribe.dictation.ModelSession
 
 const val DICTATION_NOTIFICATION_CHANNEL_ID = "dictation"
 
@@ -11,6 +12,11 @@ class LocalScribeApp : Application() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        ModelSession.onTrimMemory(level)
     }
 
     private fun createNotificationChannel() {

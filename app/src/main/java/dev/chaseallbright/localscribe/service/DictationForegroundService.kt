@@ -14,16 +14,15 @@ import androidx.core.content.ContextCompat
 import dev.chaseallbright.localscribe.DICTATION_NOTIFICATION_CHANNEL_ID
 import dev.chaseallbright.localscribe.R
 import dev.chaseallbright.localscribe.audio.AudioRecorder
-import dev.chaseallbright.localscribe.bridge.WhisperBridge
 import dev.chaseallbright.localscribe.data.LocalScribeDatabase
 import dev.chaseallbright.localscribe.data.toEntity
 import dev.chaseallbright.localscribe.dictation.DictationController
 import dev.chaseallbright.localscribe.dictation.DictationUiState
-import dev.chaseallbright.localscribe.domain.AutoCleaner
+import dev.chaseallbright.localscribe.dictation.ModelSession
 import dev.chaseallbright.localscribe.domain.DictationPipeline
 import dev.chaseallbright.localscribe.domain.WhisperTranscriber
-import dev.chaseallbright.localscribe.models.ModelManager
 import dev.chaseallbright.localscribe.settings.AppPreferences
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -74,34 +73,26 @@ class DictationForegroundService : Service() {
         DictationController.setState(DictationUiState.Processing)
 
         serviceScope.launch {
-            var whisper: WhisperBridge? = null
             try {
                 val database = LocalScribeDatabase.getInstance(applicationContext)
                 val vocabulary = database.vocabularyDao().getAllWords()
                 val preferences = AppPreferences(applicationContext)
 
-                val modelManager = ModelManager(applicationContext)
-                val whisperModelFile = modelManager.ensureWhisperModel(preferences.whisperTier)
-                whisper = WhisperBridge.load(whisperModelFile.absolutePath)
-                    ?: error("Failed to load speech model")
+                val transcript = ModelSession.withModels(applicationContext) { models ->
+                    DictationPipeline(
+                        transcriber = WhisperTranscriber(models.whisper),
+                        cleaner = models.cleaner
+                    ).process(samples, preferences.cleanupMode, vocabulary)
+                }
 
-                val cleanupModelFile = runCatching {
-                    modelManager.ensureCleanupModel(preferences.cleanupTier)
-                }.getOrNull()
-
-                val pipeline = DictationPipeline(
-                    transcriber = WhisperTranscriber(whisper),
-                    cleaner = AutoCleaner(cleanupModelFile?.absolutePath)
-                )
-
-                val transcript = pipeline.process(samples, preferences.cleanupMode, vocabulary)
                 database.transcriptDao().insert(transcript.toEntity())
                 DictationController.publishTranscript(transcript)
                 DictationController.setState(DictationUiState.Idle)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 DictationController.setState(DictationUiState.Error(e.message ?: "Dictation failed"))
             } finally {
-                whisper?.release()
                 stopSelf()
             }
         }

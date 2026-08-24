@@ -32,6 +32,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import dev.chaseallbright.localscribe.dictation.ModelSession
 import dev.chaseallbright.localscribe.domain.CleanupMode
 import dev.chaseallbright.localscribe.models.CleanupModelTier
 import dev.chaseallbright.localscribe.models.ModelManager
@@ -96,6 +97,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                     onClick = {
                         whisperTier = tier
                         preferences.whisperTier = tier
+                        ModelSession.invalidate()
                     }
                 )
             }
@@ -110,6 +112,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                     onClick = {
                         cleanupTier = tier
                         preferences.cleanupTier = tier
+                        ModelSession.invalidate()
                     }
                 )
             }

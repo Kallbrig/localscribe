@@ -8,6 +8,7 @@ import android.view.accessibility.AccessibilityWindowInfo
 import androidx.core.content.ContextCompat
 import dev.chaseallbright.localscribe.dictation.DictationController
 import dev.chaseallbright.localscribe.dictation.DictationUiState
+import dev.chaseallbright.localscribe.dictation.ModelSession
 import dev.chaseallbright.localscribe.dictation.TextInsertion
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -67,6 +68,7 @@ class DictationAccessibilityService : AccessibilityService() {
         }
 
         if (source.isEditable) {
+            ModelSession.prewarm(this)
             focusedEditableNode = source
             if (DictationController.state.value == DictationUiState.Hidden) {
                 DictationController.setState(DictationUiState.Idle)
@@ -77,6 +79,7 @@ class DictationAccessibilityService : AccessibilityService() {
     }
 
     private fun clearFocus() {
+        ModelSession.onFocusLost()
         focusedEditableNode = null
         if (DictationController.state.value == DictationUiState.Idle) {
             DictationController.setState(DictationUiState.Hidden)
