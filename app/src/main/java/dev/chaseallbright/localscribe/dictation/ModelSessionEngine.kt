@@ -54,7 +54,9 @@ class ModelSessionEngine<W : Any, C : Any>(
             mutex.withLock {
                 cancelIdleTimerLocked()
                 if (whisper == null) whisper = runCatching { loadWhisper() }.getOrNull()
-                if (cleaner == null && prewarmCleaner()) cleaner = runCatching { loadCleaner() }.getOrNull()
+                if (cleaner == null && runCatching { prewarmCleaner() }.getOrDefault(false)) {
+                    cleaner = runCatching { loadCleaner() }.getOrNull()
+                }
                 // Defense in depth: arm the timer even if the caller never focuses a field
                 // (which would normally trigger onFocusLost) and never dictates.
                 if (inFlight == 0) armIdleTimerLocked()

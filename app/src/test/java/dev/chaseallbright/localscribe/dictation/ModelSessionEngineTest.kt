@@ -326,4 +326,26 @@ class ModelSessionEngineTest {
         assertEquals(1, fakes.whisperLoads)
         assertEquals(1, fakes.cleanerLoads)
     }
+
+    @Test
+    fun `prewarm contains a throwing cleaner predicate and still arms the idle timer`() = runTest {
+        val fakes = Fakes()
+        val engine = ModelSessionEngine(
+            scope = backgroundScope,
+            prewarmCleaner = { error("boom") },
+            idleTimeoutMillis = IDLE_MS,
+            loadWhisper = fakes.loadWhisper,
+            loadCleaner = fakes.loadCleaner,
+            releaseWhisper = fakes.release,
+            releaseCleaner = fakes.release
+        )
+
+        engine.prewarm()
+        runCurrent()
+        assertEquals(1, fakes.whisperLoads)
+        assertEquals(0, fakes.cleanerLoads)
+
+        advanceTimeBy(IDLE_MS + 1)
+        assertEquals(1, fakes.whisperHandles.single().releases)
+    }
 }
