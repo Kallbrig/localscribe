@@ -1,0 +1,6 @@
+[submodule "whisper-jni/src/main/cpp/whisper.cpp"]
+	path = whisper-jni/src/main/cpp/whisper.cpp
+	url = https://github.com/ggml-org/whisper.cpp.git
+[submodule "llama-jni/src/main/cpp/llama.cpp"]
+	path = llama-jni/src/main/cpp/llama.cpp
+	url = https://github.com/ggml-org/llama.cpp.git

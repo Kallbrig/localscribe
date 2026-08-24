@@ -15,3 +15,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "LocalScribe"
 include(":app")
+include(":whisper-jni")
+include(":llama-jni")
