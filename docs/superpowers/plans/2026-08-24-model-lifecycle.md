@@ -900,9 +900,9 @@ git add -A app/src && git commit -m "feat: add ModelSession singleton binding en
 
 This task removes the per-dictation model loads (and with them the leak's trigger). No new unit tests — the lifecycle logic is covered by Task 3; this is call-site substitution verified by compile + the golden path.
 
-- [ ] **Step 1: Foreground service uses acquire/onDictationComplete**
+- [ ] **Step 1: Foreground service uses withModels**
 
-In `DictationForegroundService.kt`, replace the whole `serviceScope.launch { ... }` block inside `confirmAndProcess()` with:
+(Amended after Task 4 review: the facade exposes `withModels` as the only dictation path; raw `acquire`/`onDictationComplete` do not exist on it.) In `DictationForegroundService.kt`, replace the whole `serviceScope.launch { ... }` block inside `confirmAndProcess()` with:
 
 ```kotlin
         serviceScope.launch {
@@ -911,20 +911,19 @@ In `DictationForegroundService.kt`, replace the whole `serviceScope.launch { ...
                 val vocabulary = database.vocabularyDao().getAllWords()
                 val preferences = AppPreferences(applicationContext)
 
-                val models = ModelSession.acquire(applicationContext)
-                val pipeline = DictationPipeline(
-                    transcriber = WhisperTranscriber(models.whisper),
-                    cleaner = models.cleaner
-                )
+                val transcript = ModelSession.withModels(applicationContext) { models ->
+                    DictationPipeline(
+                        transcriber = WhisperTranscriber(models.whisper),
+                        cleaner = models.cleaner
+                    ).process(samples, preferences.cleanupMode, vocabulary)
+                }
 
-                val transcript = pipeline.process(samples, preferences.cleanupMode, vocabulary)
                 database.transcriptDao().insert(transcript.toEntity())
                 DictationController.publishTranscript(transcript)
                 DictationController.setState(DictationUiState.Idle)
             } catch (e: Exception) {
                 DictationController.setState(DictationUiState.Error(e.message ?: "Dictation failed"))
             } finally {
-                ModelSession.onDictationComplete()
                 stopSelf()
             }
         }
