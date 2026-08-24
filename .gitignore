@@ -1,0 +1,38 @@
+# Local toolchain (JDK, Android SDK/NDK/CMake) - downloaded by Phase 0, never committed
+.tools/
+
+# Gradle
+.gradle/
+build/
+*/build/
+*/*/build/
+
+# Android
+local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+.cxx/
+captures/
+*.jks
+*.keystore
+
+# Native submodule build artifacts
+app/src/main/cpp/whisper.cpp/build/
+app/src/main/cpp/llama.cpp/build/
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# Downloaded ML models (fetched at runtime by the app, never bundled/committed)
+*.gguf
+*.bin
+*.ggml
+
+# Kotlin/Java
+*.class
+*.log
+hs_err_pid*
