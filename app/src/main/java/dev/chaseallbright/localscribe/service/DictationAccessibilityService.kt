@@ -14,6 +14,7 @@ import dev.chaseallbright.localscribe.dictation.ModelSession
 import dev.chaseallbright.localscribe.dictation.TextInsertion
 import dev.chaseallbright.localscribe.domain.CleanupBackend
 import dev.chaseallbright.localscribe.domain.Transcript
+import dev.chaseallbright.localscribe.domain.shouldWarnCleanupFallback
 import dev.chaseallbright.localscribe.models.ModelManager
 import dev.chaseallbright.localscribe.settings.AppPreferences
 import kotlinx.coroutines.CoroutineScope
@@ -31,14 +32,24 @@ class DictationAccessibilityService : AccessibilityService() {
     private val serviceScope = CoroutineScope(Dispatchers.Main.immediate + Job())
     private var focusedEditableNode: AccessibilityNodeInfo? = null
 
+    // Suppresses repeat "AI cleanup unavailable" toasts once the user's been told -- a device
+    // where Qwen persistently fails shouldn't toast on every single dictation. A later QWEN
+    // transcript means it recovered, so a subsequent regression is worth warning about again.
+    private var warnedCleanupFallback = false
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         ContextCompat.startForegroundService(this, Intent(this, OverlayBubbleService::class.java))
 
         serviceScope.launch {
             DictationController.transcriptReady.collect { transcript ->
-                TextInsertion.insert(this@DictationAccessibilityService, focusedEditableNode, transcript.cleaned)
-                maybeToastCleanupFallback(transcript)
+                val inserted = TextInsertion.insert(this@DictationAccessibilityService, focusedEditableNode, transcript.cleaned)
+                // Only warn about the cleanup fallback when the text actually landed in the
+                // field -- otherwise this toast would stack on top of TextInsertion's own
+                // "Copied -- paste manually" toast when both insertion tiers failed.
+                if (inserted) {
+                    maybeToastCleanupFallback(transcript)
+                }
             }
         }
     }
@@ -48,16 +59,20 @@ class DictationAccessibilityService : AccessibilityService() {
      * the rules cleaner instead (LLM output rejected, or the model failed to load).
      */
     private fun maybeToastCleanupFallback(transcript: Transcript) {
-        // ModelManager.isCleanupModelReady is a single File.isFile stat and AppPreferences reads
-        // SharedPreferences -- both synchronous, but this fires once per completed dictation on
-        // the main thread, so a coroutine hop here isn't worth the added complexity.
-        val fellBack = when (transcript.backend) {
-            CleanupBackend.RULES_FALLBACK -> true
-            CleanupBackend.RULES ->
-                ModelManager(this).isCleanupModelReady(AppPreferences(this).cleanupTier)
-            else -> false
+        if (transcript.backend == CleanupBackend.QWEN) {
+            warnedCleanupFallback = false
+            return
         }
-        if (fellBack) {
+        if (transcript.backend == CleanupBackend.UNKNOWN || warnedCleanupFallback) return
+
+        // isCleanupModelReady() also attempts a mkdirs() (a filesystem write, since
+        // cleanupModelDir() creates the directory if missing), and cleanupTier's getter falls
+        // back to defaultCleanupTier() -- an ActivityManager binder IPC -- whenever the tier
+        // pref is unset. All sub-millisecond, and this only runs once per completed dictation
+        // on the main thread, so a coroutine hop isn't worth the added complexity here.
+        val cleanupModelInstalled = ModelManager(this).isCleanupModelReady(AppPreferences(this).cleanupTier)
+        if (shouldWarnCleanupFallback(transcript.backend, cleanupModelInstalled)) {
+            warnedCleanupFallback = true
             Toast.makeText(this, getString(R.string.cleanup_fallback_toast), Toast.LENGTH_SHORT).show()
         }
     }

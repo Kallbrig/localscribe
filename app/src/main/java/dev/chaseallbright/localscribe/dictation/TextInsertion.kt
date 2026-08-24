@@ -14,10 +14,12 @@ import android.widget.Toast
 object TextInsertion {
     private const val CLIP_LABEL = "LocalScribe dictation"
 
-    fun insert(context: Context, node: AccessibilityNodeInfo?, text: String) {
-        if (node != null && trySetText(node, text)) return
-        if (node != null && tryClipboardPaste(context, node, text)) return
+    /** Returns true when text landed directly in the field (SET_TEXT or clipboard+PASTE), false when it only reached the clipboard. */
+    fun insert(context: Context, node: AccessibilityNodeInfo?, text: String): Boolean {
+        if (node != null && trySetText(node, text)) return true
+        if (node != null && tryClipboardPaste(context, node, text)) return true
         copyToClipboardOnly(context, text)
+        return false
     }
 
     private fun trySetText(node: AccessibilityNodeInfo, text: String): Boolean {
