@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chaseallbright.localscribe.data.LocalScribeDatabase
 import dev.chaseallbright.localscribe.data.TranscriptEntity
+import dev.chaseallbright.localscribe.domain.CleanupBackend
 import java.text.DateFormat
 import java.util.Date
 
@@ -63,9 +64,12 @@ private fun HistoryRow(entry: TranscriptEntity) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(text = entry.cleaned, style = MaterialTheme.typography.bodyLarge)
+            val basicCleanup = entry.cleanupBackend == CleanupBackend.RULES.name ||
+                entry.cleanupBackend == CleanupBackend.RULES_FALLBACK.name
             Text(
                 text = "${formatTimestamp(entry.createdAtEpochMillis)} · ${entry.mode.lowercase()} · " +
-                    "${"%.1f".format(entry.durationSeconds)}s",
+                    "${"%.1f".format(entry.durationSeconds)}s" +
+                    if (basicCleanup) " · basic cleanup" else "",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

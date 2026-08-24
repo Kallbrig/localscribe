@@ -8,4 +8,5 @@
     <string name="dictation_notification_recording">Listening…</string>
     <string name="dictation_notification_processing">Cleaning up your dictation…</string>
     <string name="overlay_notification_text">Dictation bubble is active</string>
+    <string name="cleanup_fallback_toast">AI cleanup unavailable — inserted with basic cleanup</string>
 </resources>

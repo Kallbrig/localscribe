@@ -5,11 +5,17 @@ import android.content.Intent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import android.widget.Toast
 import androidx.core.content.ContextCompat
+import dev.chaseallbright.localscribe.R
 import dev.chaseallbright.localscribe.dictation.DictationController
 import dev.chaseallbright.localscribe.dictation.DictationUiState
 import dev.chaseallbright.localscribe.dictation.ModelSession
 import dev.chaseallbright.localscribe.dictation.TextInsertion
+import dev.chaseallbright.localscribe.domain.CleanupBackend
+import dev.chaseallbright.localscribe.domain.Transcript
+import dev.chaseallbright.localscribe.models.ModelManager
+import dev.chaseallbright.localscribe.settings.AppPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -32,7 +38,27 @@ class DictationAccessibilityService : AccessibilityService() {
         serviceScope.launch {
             DictationController.transcriptReady.collect { transcript ->
                 TextInsertion.insert(this@DictationAccessibilityService, focusedEditableNode, transcript.cleaned)
+                maybeToastCleanupFallback(transcript)
             }
+        }
+    }
+
+    /**
+     * The user chose LLM cleanup by installing a model; tell them when they silently got
+     * the rules cleaner instead (LLM output rejected, or the model failed to load).
+     */
+    private fun maybeToastCleanupFallback(transcript: Transcript) {
+        // ModelManager.isCleanupModelReady is a single File.isFile stat and AppPreferences reads
+        // SharedPreferences -- both synchronous, but this fires once per completed dictation on
+        // the main thread, so a coroutine hop here isn't worth the added complexity.
+        val fellBack = when (transcript.backend) {
+            CleanupBackend.RULES_FALLBACK -> true
+            CleanupBackend.RULES ->
+                ModelManager(this).isCleanupModelReady(AppPreferences(this).cleanupTier)
+            else -> false
+        }
+        if (fellBack) {
+            Toast.makeText(this, getString(R.string.cleanup_fallback_toast), Toast.LENGTH_SHORT).show()
         }
     }
 
