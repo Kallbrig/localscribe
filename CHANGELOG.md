@@ -4,8 +4,19 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and s
 
 ## [Unreleased]
 
+### Added
+
+- Models now stay resident between dictations: whisper (and the cleanup LLM on ≥6GB devices)
+  pre-loads when a text field gains focus and unloads after 5 idle minutes or under memory
+  pressure, so dictations no longer pay model-load latency every time. Pre-warming never
+  downloads models; downloads still happen only on first dictation use.
+- History rows and a one-time toast now say when a transcript got basic (rules) cleanup
+  instead of AI cleanup.
+
 ### Fixed
 
+- The Qwen cleanup model's native context was loaded on every dictation and never freed,
+  leaking native memory each time; the resident model session now owns and releases it.
 - Overlay bubble would flicker back to hidden immediately after correctly appearing:
   `TYPE_WINDOW_CONTENT_CHANGED` accessibility events (whose `source` is frequently an
   unrelated parent container, not the focused view) were being used to clear focus
