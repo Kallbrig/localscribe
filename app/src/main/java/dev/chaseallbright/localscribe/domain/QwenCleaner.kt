@@ -1,8 +1,10 @@
 package dev.chaseallbright.localscribe.domain
 
-import dev.chaseallbright.localscribe.bridge.LlamaBridge
-
 private const val MAX_GENERATED_TOKENS = 512
+
+fun interface TextGenerator {
+    fun generate(prompt: String, maxTokens: Int): String
+}
 
 /**
  * LLM-backed cleaner using a local Qwen2.5 GGUF model through llama-jni.
@@ -11,7 +13,7 @@ private const val MAX_GENERATED_TOKENS = 512
  * inert quotation to edit, never as a message to reply to. Without this, small instruction
  * -tuned models will sometimes "answer" a dictated question instead of just cleaning it up.
  */
-class QwenCleaner(private val llama: LlamaBridge) : Cleaner {
+class QwenCleaner(private val generator: TextGenerator) : Cleaner {
 
     override fun clean(text: String, mode: CleanupMode, vocabulary: List<String>): CleanResult {
         val vocab = vocabulary.joinToString(", ").ifEmpty { "none" }
@@ -31,7 +33,7 @@ class QwenCleaner(private val llama: LlamaBridge) : Cleaner {
             append("<|im_start|>assistant\n")
         }
 
-        val raw = llama.generate(prompt, MAX_GENERATED_TOKENS).trim()
+        val raw = generator.generate(prompt, MAX_GENERATED_TOKENS).trim()
         val output = Regex("^<dictation>|</dictation>$", RegexOption.IGNORE_CASE)
             .replace(raw, "")
             .trim()

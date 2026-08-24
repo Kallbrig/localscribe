@@ -50,7 +50,7 @@ class RuleBasedCleanerTest {
 
     @Test
     fun `reports RULES backend`() {
-        val result = RuleBasedCleaner().clean("hello world", CleanupMode.STANDARD, emptyList())
+        val result = cleaner.clean("hello world", CleanupMode.STANDARD, emptyList())
         assertEquals(CleanupBackend.RULES, result.backend)
     }
 }
