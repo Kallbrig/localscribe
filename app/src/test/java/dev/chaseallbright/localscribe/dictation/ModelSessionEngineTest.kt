@@ -1,11 +1,12 @@
 package dev.chaseallbright.localscribe.dictation
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -13,25 +14,30 @@ import org.junit.Test
 
 private const val IDLE_MS = 5 * 60 * 1000L
 
-private class Handle { var released = false }
+private class Handle { var releases = 0 }
 
 private class Fakes {
+    // Counts successful loads only; failed attempts (whisperShouldFail/cleanerShouldFail) do not increment these.
     var whisperLoads = 0
     var cleanerLoads = 0
     var whisperShouldFail = false
+    var cleanerShouldFail = false
+    var whisperGate: CompletableDeferred<Unit>? = null
     val whisperHandles = mutableListOf<Handle>()
     val cleanerHandles = mutableListOf<Handle>()
 
     val loadWhisper: suspend () -> Handle = {
+        whisperGate?.await()
         if (whisperShouldFail) error("whisper load failed")
         whisperLoads++
         Handle().also { whisperHandles += it }
     }
     val loadCleaner: suspend () -> Handle = {
+        if (cleanerShouldFail) error("cleaner load failed")
         cleanerLoads++
         Handle().also { cleanerHandles += it }
     }
-    val release: (Handle) -> Unit = { it.released = true }
+    val release: (Handle) -> Unit = { it.releases++ }
 }
 
 private fun TestScope.newEngine(fakes: Fakes, prewarmCleaner: Boolean = true) =
@@ -98,8 +104,8 @@ class ModelSessionEngineTest {
         engine.onDictationComplete()
         advanceTimeBy(IDLE_MS + 1)
 
-        assertTrue(fakes.whisperHandles.single().released)
-        assertTrue(fakes.cleanerHandles.single().released)
+        assertEquals(1, fakes.whisperHandles.single().releases)
+        assertEquals(1, fakes.cleanerHandles.single().releases)
     }
 
     @Test
@@ -114,7 +120,7 @@ class ModelSessionEngineTest {
         engine.prewarm() // user focused a field again
         advanceTimeBy(IDLE_MS)
 
-        assertFalse(fakes.whisperHandles.single().released)
+        assertEquals(0, fakes.whisperHandles.single().releases)
     }
 
     @Test
@@ -125,11 +131,11 @@ class ModelSessionEngineTest {
         engine.acquire()
         engine.onFocusLost() // e.g. focus event races the dictation
         advanceTimeBy(IDLE_MS * 2)
-        assertFalse(fakes.whisperHandles.single().released)
+        assertEquals(0, fakes.whisperHandles.single().releases)
 
         engine.onDictationComplete()
         advanceTimeBy(IDLE_MS + 1)
-        assertTrue(fakes.whisperHandles.single().released)
+        assertEquals(1, fakes.whisperHandles.single().releases)
     }
 
     @Test
@@ -141,7 +147,7 @@ class ModelSessionEngineTest {
         engine.onDictationComplete()
         engine.invalidate()
         runCurrent()
-        assertTrue(fakes.whisperHandles.single().released)
+        assertEquals(1, fakes.whisperHandles.single().releases)
 
         val second = engine.acquire()
         assertEquals(2, fakes.whisperLoads)
@@ -156,11 +162,11 @@ class ModelSessionEngineTest {
         engine.acquire()
         engine.invalidate()
         runCurrent()
-        assertFalse(fakes.whisperHandles.single().released)
+        assertEquals(0, fakes.whisperHandles.single().releases)
 
         engine.onDictationComplete()
         runCurrent()
-        assertTrue(fakes.whisperHandles.single().released)
+        assertEquals(1, fakes.whisperHandles.single().releases)
     }
 
     @Test
@@ -189,7 +195,7 @@ class ModelSessionEngineTest {
         fakes.whisperShouldFail = false
         val models = engine.acquire()
         assertEquals(1, fakes.whisperLoads)
-        assertFalse(models.whisper.released)
+        assertEquals(0, models.whisper.releases)
     }
 
     @Test
@@ -200,11 +206,95 @@ class ModelSessionEngineTest {
         engine.acquire()
         engine.onTrimMemory()
         runCurrent()
-        assertFalse(fakes.whisperHandles.single().released)
+        assertEquals(0, fakes.whisperHandles.single().releases)
 
         engine.onDictationComplete()
         engine.onTrimMemory()
         runCurrent()
-        assertTrue(fakes.whisperHandles.single().released)
+        assertEquals(1, fakes.whisperHandles.single().releases)
+    }
+
+    // --- New coverage: pin counter, acquire failure path, single-flight lock-in ---
+
+    @Test
+    fun `overlapping acquires pin until the last dictation completes`() = runTest {
+        val fakes = Fakes()
+        val engine = newEngine(fakes)
+
+        engine.acquire()
+        engine.acquire()
+        engine.onDictationComplete()
+        engine.onTrimMemory()
+        runCurrent()
+        assertEquals(0, fakes.whisperHandles.single().releases)
+        assertEquals(0, fakes.cleanerHandles.single().releases)
+
+        engine.onDictationComplete()
+        engine.onTrimMemory()
+        runCurrent()
+        assertEquals(1, fakes.whisperHandles.single().releases)
+        assertEquals(1, fakes.cleanerHandles.single().releases)
+    }
+
+    @Test
+    fun `acquire partial failure leaves whisper resident but re-arms the idle timer`() = runTest {
+        val fakes = Fakes()
+        fakes.cleanerShouldFail = true
+        val engine = newEngine(fakes)
+
+        val thrown = runCatching { engine.acquire() }.exceptionOrNull()
+        assertTrue(thrown is IllegalStateException)
+        assertEquals(1, fakes.whisperLoads)
+        assertEquals(0, fakes.whisperHandles.single().releases)
+
+        advanceTimeBy(IDLE_MS + 1)
+        assertEquals(1, fakes.whisperHandles.single().releases)
+    }
+
+    @Test
+    fun `single-flight - a concurrent acquire waits for an in-flight prewarm load instead of double-loading`() = runTest {
+        val fakes = Fakes()
+        val gate = CompletableDeferred<Unit>()
+        fakes.whisperGate = gate
+        val engine = newEngine(fakes)
+
+        engine.prewarm()
+        runCurrent() // prewarm's coroutine runs up to gate.await(), suspended while holding the mutex
+
+        backgroundScope.launch { engine.acquire() }
+        runCurrent() // the concurrent acquire blocks trying to take the (held) mutex
+
+        gate.complete(Unit)
+        runCurrent() // prewarm's load finishes and releases the mutex; acquire proceeds and reuses it
+
+        assertEquals(1, fakes.whisperLoads)
+    }
+
+    @Test
+    fun `withModels releases the pin after the block completes`() = runTest {
+        val fakes = Fakes()
+        val engine = newEngine(fakes)
+
+        val result = engine.withModels { it.whisper }
+        assertSame(fakes.whisperHandles.single(), result)
+
+        engine.onTrimMemory()
+        runCurrent()
+        assertEquals(1, fakes.whisperHandles.single().releases)
+    }
+
+    @Test
+    fun `withModels releases the pin even when the block throws`() = runTest {
+        val fakes = Fakes()
+        val engine = newEngine(fakes)
+
+        val thrown = runCatching {
+            engine.withModels { throw IllegalStateException("boom") }
+        }.exceptionOrNull()
+        assertTrue(thrown is IllegalStateException)
+
+        engine.onTrimMemory()
+        runCurrent()
+        assertEquals(1, fakes.whisperHandles.single().releases)
     }
 }
