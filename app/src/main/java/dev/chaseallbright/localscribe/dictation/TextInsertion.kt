@@ -24,10 +24,27 @@ object TextInsertion {
 
     private fun trySetText(node: AccessibilityNodeInfo, text: String): Boolean {
         if (!node.refresh() || !node.isEditable) return false
+
+        // ACTION_SET_TEXT replaces the node's whole contents, so splice the dictation into
+        // what's already there. When the field is empty its `text` is the placeholder hint,
+        // which must not be treated as real content.
+        val existing = if (node.isShowingHintText) "" else node.text?.toString().orEmpty()
+        val spliced = spliceAtCursor(existing, node.textSelectionStart, node.textSelectionEnd, text)
+
         val arguments = Bundle().apply {
-            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, spliced.text)
         }
-        return node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+        if (!node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)) return false
+
+        // Leave the cursor after the dictation; otherwise it jumps to the end of the field,
+        // which is wrong whenever we inserted into the middle. Best-effort: the text landed
+        // either way, so a field that refuses the selection still counts as a success.
+        val selection = Bundle().apply {
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, spliced.cursor)
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, spliced.cursor)
+        }
+        node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selection)
+        return true
     }
 
     private fun tryClipboardPaste(context: Context, node: AccessibilityNodeInfo, text: String): Boolean {
