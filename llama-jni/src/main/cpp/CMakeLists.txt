@@ -37,3 +37,7 @@ target_include_directories(llama-jni PRIVATE
         ${LLAMA_SRC}/ggml/include)
 
 target_link_libraries(llama-jni llama ${LOG_LIB} android)
+
+# See whisper-jni's CMakeLists: 16KB page alignment is required to load on Android 15+ devices
+# running 16KB pages.
+target_link_options(llama-jni PRIVATE "-Wl,-z,max-page-size=16384")

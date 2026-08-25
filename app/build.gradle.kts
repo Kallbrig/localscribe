@@ -16,6 +16,9 @@ kotlin {
 android {
     namespace = "dev.chaseallbright.localscribe"
     compileSdk = 36
+    // Pinned: CI installs this exact NDK, and AGP would otherwise pick its own default
+    // (27.x locally), so CI and local machines would build with different toolchains.
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         applicationId = "dev.chaseallbright.localscribe"

@@ -37,3 +37,8 @@ target_include_directories(whisper-jni PRIVATE
         ${WHISPER_SRC}/ggml/include)
 
 target_link_libraries(whisper-jni whisper ${LOG_LIB} android)
+
+# Android 15+ can boot with 16KB memory pages, where a 4KB-aligned library simply fails to
+# load. NDK 28 does this by default; stating it explicitly keeps the requirement true if the
+# toolchain ever moves back (NDK 27 needs the opt-in, and produced 4KB libraries here).
+target_link_options(whisper-jni PRIVATE "-Wl,-z,max-page-size=16384")
