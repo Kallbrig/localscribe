@@ -13,6 +13,7 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import dev.chaseallbright.localscribe.DICTATION_NOTIFICATION_CHANNEL_ID
 import dev.chaseallbright.localscribe.R
+import android.util.Log
 import dev.chaseallbright.localscribe.audio.AudioRecorder
 import dev.chaseallbright.localscribe.data.LocalScribeDatabase
 import dev.chaseallbright.localscribe.data.toEntity
@@ -73,17 +74,38 @@ class DictationForegroundService : Service() {
         DictationController.setState(DictationUiState.Processing)
 
         serviceScope.launch {
+            val dictationStart = System.nanoTime()
             try {
                 val database = LocalScribeDatabase.getInstance(applicationContext)
                 val vocabulary = database.vocabularyDao().getAllWords()
                 val preferences = AppPreferences(applicationContext)
 
+                val audioSeconds = samples.size.toFloat() / AudioRecorder.SAMPLE_RATE_HZ
+                Log.i(
+                    ModelSession.PERF_TAG,
+                    "dictation start: ${"%.1f".format(audioSeconds)}s audio, " +
+                        "whisper=${preferences.whisperTier.id}, cleanup=${preferences.cleanupTier.id}"
+                )
+
+                val acquireStart = System.nanoTime()
                 val transcript = ModelSession.withModels(applicationContext) { models ->
+                    Log.i(
+                        ModelSession.PERF_TAG,
+                        "acquire took ${(System.nanoTime() - acquireStart) / 1_000_000}ms"
+                    )
                     DictationPipeline(
                         transcriber = WhisperTranscriber(models.whisper),
-                        cleaner = models.cleaner
+                        cleaner = models.cleaner,
+                        onStageTiming = { stage, millis ->
+                            Log.i(ModelSession.PERF_TAG, "$stage took ${millis}ms")
+                        }
                     ).process(samples, preferences.cleanupMode, vocabulary)
                 }
+                Log.i(
+                    ModelSession.PERF_TAG,
+                    "dictation total ${(System.nanoTime() - dictationStart) / 1_000_000}ms, " +
+                        "backend=${transcript.backend}, chars=${transcript.cleaned.length}"
+                )
 
                 database.transcriptDao().insert(transcript.toEntity())
                 DictationController.publishTranscript(transcript)

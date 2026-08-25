@@ -26,6 +26,9 @@ import kotlinx.coroutines.launch
 object ModelSession {
     private const val TAG = "ModelSession"
 
+    /** Shared tag for dictation latency logs: `adb logcat -s LocalScribePerf`. */
+    const val PERF_TAG = "LocalScribePerf"
+
     /**
      * How long models stay resident with no focus or dictation activity. This is a rolling
      * window, not a hard cap on total residency: each [prewarm] (e.g. from a focus event) and
@@ -58,11 +61,21 @@ object ModelSession {
                 },
                 idleTimeoutMillis = IDLE_TIMEOUT_MILLIS,
                 loadWhisper = {
+                    val ensureStart = System.nanoTime()
                     val preferences = AppPreferences(appContext)
                     val file = ModelManager(appContext).ensureWhisperModel(preferences.whisperTier)
-                    WhisperBridge.load(file.absolutePath) ?: error("Failed to load speech model")
+                    val loadStart = System.nanoTime()
+                    val bridge = WhisperBridge.load(file.absolutePath)
+                        ?: error("Failed to load speech model")
+                    Log.i(
+                        PERF_TAG,
+                        "whisper ensure=${(loadStart - ensureStart) / 1_000_000}ms " +
+                            "load=${(System.nanoTime() - loadStart) / 1_000_000}ms"
+                    )
+                    bridge
                 },
                 loadCleaner = {
+                    val ensureStart = System.nanoTime()
                     val preferences = AppPreferences(appContext)
                     val file = try {
                         ModelManager(appContext).ensureCleanupModel(preferences.cleanupTier)
@@ -72,7 +85,15 @@ object ModelSession {
                         Log.w(TAG, "Cleanup model unavailable; falling back to rules cleanup", e)
                         null
                     }
-                    AutoCleaner(file?.absolutePath)
+                    val loadStart = System.nanoTime()
+                    val cleaner = AutoCleaner(file?.absolutePath)
+                    Log.i(
+                        PERF_TAG,
+                        "cleaner ensure=${(loadStart - ensureStart) / 1_000_000}ms " +
+                            "load=${(System.nanoTime() - loadStart) / 1_000_000}ms " +
+                            "llmLoaded=${cleaner.isLlmLoaded}"
+                    )
+                    cleaner
                 },
                 releaseWhisper = { it.release() },
                 releaseCleaner = { it.close() },
