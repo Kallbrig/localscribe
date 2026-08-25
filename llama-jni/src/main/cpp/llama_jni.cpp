@@ -66,6 +66,13 @@ Java_dev_chaseallbright_localscribe_bridge_LlamaBridge_nativeGenerate(
 
     const llama_vocab *vocab = llama_model_get_vocab(h->model);
 
+    // Each call is an independent cleanup of one dictation. llama_decode continues from
+    // whatever is already in the KV cache, so without this the previous dictation's tokens
+    // stay in context: generation gets progressively slower, the model can see unrelated
+    // earlier text, and once the context fills, decode fails outright and cleanup silently
+    // degrades to the rules fallback. Matters because the model is resident across dictations.
+    llama_memory_clear(llama_get_memory(h->ctx), true);
+
     const char *promptChars = env->GetStringUTFChars(prompt, nullptr);
     std::string promptStr(promptChars);
     env->ReleaseStringUTFChars(prompt, promptChars);
