@@ -3,7 +3,6 @@ package dev.chaseallbright.localscribe
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.os.Build
 import dev.chaseallbright.localscribe.dictation.ModelSession
 
 const val DICTATION_NOTIFICATION_CHANNEL_ID = "dictation"
@@ -20,8 +19,6 @@ class LocalScribeApp : Application() {
     }
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-
         // Low importance: no sound, no heads-up popup. Recording status should stay out of
         // the way, matching the desktop app's "silent by default" notification philosophy.
         val channel = NotificationChannel(
