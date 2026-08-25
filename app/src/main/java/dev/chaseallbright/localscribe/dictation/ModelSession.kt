@@ -60,37 +60,31 @@ object ModelSession {
                         ModelManager(appContext).isCleanupModelReady(AppPreferences(appContext).cleanupTier)
                 },
                 idleTimeoutMillis = IDLE_TIMEOUT_MILLIS,
+                // Neither loader downloads. Fetching a model is a deliberate, visible action in
+                // Settings: inside a dictation a multi-hundred-MB download is indistinguishable
+                // from a hang, which is exactly how it used to present.
                 loadWhisper = {
-                    val ensureStart = System.nanoTime()
-                    val preferences = AppPreferences(appContext)
-                    val file = ModelManager(appContext).ensureWhisperModel(preferences.whisperTier)
+                    val tier = AppPreferences(appContext).whisperTier
+                    val file = ModelManager(appContext).speechModelFile(tier)
+                    if (!file.isFile) {
+                        error("${tier.displayName} speech model isn't downloaded. Open LocalScribe to download it.")
+                    }
                     val loadStart = System.nanoTime()
                     val bridge = WhisperBridge.load(file.absolutePath)
                         ?: error("Failed to load speech model")
-                    Log.i(
-                        PERF_TAG,
-                        "whisper ensure=${(loadStart - ensureStart) / 1_000_000}ms " +
-                            "load=${(System.nanoTime() - loadStart) / 1_000_000}ms"
-                    )
+                    Log.i(PERF_TAG, "whisper load=${(System.nanoTime() - loadStart) / 1_000_000}ms")
                     bridge
                 },
                 loadCleaner = {
-                    val ensureStart = System.nanoTime()
-                    val preferences = AppPreferences(appContext)
-                    val file = try {
-                        ModelManager(appContext).ensureCleanupModel(preferences.cleanupTier)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Cleanup model unavailable; falling back to rules cleanup", e)
-                        null
-                    }
+                    val tier = AppPreferences(appContext).cleanupTier
+                    // A missing cleanup model is not an error -- rules cleanup covers it.
+                    val file = ModelManager(appContext).cleanupModelFile(tier).takeIf { it.isFile }
+                    if (file == null) Log.i(TAG, "No cleanup model downloaded; using rules cleanup")
                     val loadStart = System.nanoTime()
                     val cleaner = AutoCleaner(file?.absolutePath)
                     Log.i(
                         PERF_TAG,
-                        "cleaner ensure=${(loadStart - ensureStart) / 1_000_000}ms " +
-                            "load=${(System.nanoTime() - loadStart) / 1_000_000}ms " +
+                        "cleaner load=${(System.nanoTime() - loadStart) / 1_000_000}ms " +
                             "llmLoaded=${cleaner.isLlmLoaded}"
                     )
                     cleaner

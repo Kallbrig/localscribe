@@ -6,8 +6,8 @@ import java.io.File
 
 /**
  * Owns model storage under app-private [Context.filesDir] and RAM-tiered default selection.
- * Downloads are resumable/verified via [ModelDownloader]; nothing here talks to whisper-jni
- * or llama-jni directly -- this only produces file paths for the domain layer to load.
+ * Only produces file paths and readiness checks -- fetching models is [ModelDownloadManager]'s
+ * job, and nothing here talks to whisper-jni or llama-jni directly.
  */
 class ModelManager(private val context: Context) {
 
@@ -30,15 +30,4 @@ class ModelManager(private val context: Context) {
     fun isWhisperModelReady(tier: WhisperModelTier): Boolean = speechModelFile(tier).isFile
     fun isCleanupModelReady(tier: CleanupModelTier): Boolean = cleanupModelFile(tier).isFile
 
-    suspend fun ensureWhisperModel(tier: WhisperModelTier, onProgress: DownloadProgress? = null): File {
-        val destination = speechModelFile(tier)
-        ModelDownloader.download(tier.downloadUrl, destination, tier.approxSizeBytes, onProgress)
-        return destination
-    }
-
-    suspend fun ensureCleanupModel(tier: CleanupModelTier, onProgress: DownloadProgress? = null): File {
-        val destination = cleanupModelFile(tier)
-        ModelDownloader.download(tier.downloadUrl, destination, tier.approxSizeBytes, onProgress)
-        return destination
-    }
 }

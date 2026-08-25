@@ -7,18 +7,27 @@ object RamTier {
     const val CLEANUP_UPGRADE_MIN_GB = 6.0
 }
 
-enum class WhisperModelTier(
-    val id: String,
-    val displayName: String,
-    val repository: String,
-    val filename: String,
+/** What the downloader and the Settings UI need to know about a model, whichever kind it is. */
+interface ModelSpec {
+    val id: String
+    val displayName: String
+    val filename: String
     val approxSizeBytes: Long
-) {
+    val downloadUrl: String
+}
+
+enum class WhisperModelTier(
+    override val id: String,
+    override val displayName: String,
+    val repository: String,
+    override val filename: String,
+    override val approxSizeBytes: Long
+) : ModelSpec {
     TINY_EN("tiny.en", "Tiny (English)", "ggerganov/whisper.cpp", "ggml-tiny.en.bin", 77_704_715),
     BASE_EN("base.en", "Base (English)", "ggerganov/whisper.cpp", "ggml-base.en.bin", 147_964_211),
     SMALL_EN("small.en", "Small (English)", "ggerganov/whisper.cpp", "ggml-small.en.bin", 487_614_201);
 
-    val downloadUrl: String
+    override val downloadUrl: String
         get() = "https://huggingface.co/$repository/resolve/main/$filename"
 
     companion object {
@@ -32,12 +41,12 @@ enum class WhisperModelTier(
 }
 
 enum class CleanupModelTier(
-    val id: String,
-    val displayName: String,
+    override val id: String,
+    override val displayName: String,
     val repository: String,
-    val filename: String,
-    val approxSizeBytes: Long
-) {
+    override val filename: String,
+    override val approxSizeBytes: Long
+) : ModelSpec {
     QWEN_0_5B(
         "qwen-0.5b",
         "Qwen2.5 0.5B (default)",
@@ -53,7 +62,7 @@ enum class CleanupModelTier(
         1_117_320_736
     );
 
-    val downloadUrl: String
+    override val downloadUrl: String
         get() = "https://huggingface.co/$repository/resolve/main/$filename"
 
     companion object {
