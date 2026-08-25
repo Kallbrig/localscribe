@@ -61,4 +61,60 @@ class TextSpliceTest {
         assertEquals("hello world", result.text)
         assertEquals(6, result.cursor)
     }
+
+    @Test
+    fun `separates dictation from preceding text with a space`() {
+        val result = spliceAtCursor("Hello", selectionStart = 5, selectionEnd = 5, insertion = "there.")
+
+        assertEquals("Hello there.", result.text)
+        assertEquals(12, result.cursor)
+    }
+
+    @Test
+    fun `does not double up an existing trailing space`() {
+        val result = spliceAtCursor("Hello ", selectionStart = 6, selectionEnd = 6, insertion = "there")
+
+        assertEquals("Hello there", result.text)
+        assertEquals(11, result.cursor)
+    }
+
+    @Test
+    fun `separates dictation from following text with a space`() {
+        val result = spliceAtCursor("world", selectionStart = 0, selectionEnd = 0, insertion = "hello")
+
+        assertEquals("hello world", result.text)
+        assertEquals(5, result.cursor)
+    }
+
+    @Test
+    fun `no space is added after an opening bracket or quote`() {
+        val result = spliceAtCursor("(", selectionStart = 1, selectionEnd = 1, insertion = "an aside")
+
+        assertEquals("(an aside", result.text)
+        assertEquals(9, result.cursor)
+    }
+
+    @Test
+    fun `no space is added before punctuation that follows the cursor`() {
+        val result = spliceAtCursor("Hello.", selectionStart = 5, selectionEnd = 5, insertion = "there")
+
+        assertEquals("Hello there.", result.text)
+        assertEquals(11, result.cursor)
+    }
+
+    @Test
+    fun `dictated punctuation attaches to the preceding word`() {
+        val result = spliceAtCursor("Hello", selectionStart = 5, selectionEnd = 5, insertion = ",")
+
+        assertEquals("Hello,", result.text)
+        assertEquals(6, result.cursor)
+    }
+
+    @Test
+    fun `a newline counts as separation`() {
+        val result = spliceAtCursor("Line one\n", selectionStart = 9, selectionEnd = 9, insertion = "Line two")
+
+        assertEquals("Line one\nLine two", result.text)
+        assertEquals(17, result.cursor)
+    }
 }
