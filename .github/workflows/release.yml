@@ -43,10 +43,11 @@ jobs:
             echo "RELEASE_KEYSTORE_BASE64 is not set. Refusing to publish an unsigned release."
             exit 1
           fi
-          # tr: the secret can pick up CR/newlines when pasted from a file or piped
-          # in from PowerShell. GNU base64 -d tolerates those, but not every coreutils
-          # build does, and stripping them costs nothing.
-          printf '%s' "$KEYSTORE_BASE64" | tr -d '\r\n' | base64 -d > "$RUNNER_TEMP/release.jks"
+          # Strip anything outside the base64 alphabet before decoding. A secret can
+          # pick up a BOM, CR/LF, or console line-wrapping depending on how it was
+          # uploaded (PowerShell pipes are a known offender); base64 -d rejects all of
+          # it with a bare "invalid input". Whitelisting is robust to every variant.
+          printf '%s' "$KEYSTORE_BASE64" | tr -cd 'A-Za-z0-9+/=' | base64 -d > "$RUNNER_TEMP/release.jks"
           if [ ! -s "$RUNNER_TEMP/release.jks" ]; then
             echo "Decoded keystore is empty. Re-check the RELEASE_KEYSTORE_BASE64 secret."
             exit 1
