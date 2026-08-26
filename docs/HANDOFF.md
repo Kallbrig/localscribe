@@ -2,12 +2,13 @@
 
 _Last updated: 2026-08-26. Repo: https://github.com/Kallbrig/localscribe (public). Default branch `master`._
 
-**v0.1.2 is released**: https://github.com/Kallbrig/localscribe/releases/tag/v0.1.2. Signed with
-the same certificate as v0.1.1 (`73ef2d6d…`), so it installs straight over it and Obtainium can
-track the repo. Unit suite: 89 tests, all passing.
+**v0.1.3 is released**: https://github.com/Kallbrig/localscribe/releases/tag/v0.1.3. Unit
+suite: 109 tests, all passing.
 
-Both releases were built and published **from the local machine**, not by CI — see the open
-item below.
+**CI now builds and publishes releases on its own.** v0.1.3 is the first release the pipeline
+produced end to end — v0.1.1 and v0.1.2 were built locally because `RELEASE_KEYSTORE_PASSWORD`
+was wrong. Every release shares certificate `73ef2d6d…`, so they install over one another and
+Obtainium can track the repo.
 
 Verified on a Galaxy S25 Ultra (Android 16, 8 cores, 11.4 GB RAM, arm64-v8a).
 Build with `./gradlew :app:assembleDebug` — `JAVA_HOME`
@@ -18,7 +19,35 @@ cannot run the build.
 
 ## Done
 
-### Cleanup styles that actually differ (v0.1.2)
+### Informal is near-verbatim, and the styles are a real gradient (v0.1.3)
+
+Reported: "hey man what's going on" on informal came back as "Hey man, what's up?" -- capital,
+comma inserted, words swapped. Informal is for texting.
+
+The styles are now a gradient in *what may change*, not four wordings of "tidy this up":
+
+| Style | Grammar & punctuation | Word choice |
+|---|---|---|
+| Informal | left alone | exact |
+| Casual | corrected | exact |
+| Standard | corrected | tightened |
+| Business | corrected | rewritten |
+
+- **Informal no longer runs the LLM.** `VerbatimFormatter` is deterministic, so substitution is
+  unrepresentable rather than merely rejected. A 0.5B model cannot be reliably talked out of
+  tidying, and rejecting its tidying afterwards spends a model load to reach the same place.
+- Whisper emits prose-formatted text (sentence case, commas, terminal punctuation). Informal's
+  job is undoing that. `Hey man, what's going on?` -> `hey man what's going on`.
+- Kept on purpose: apostrophes already present (removing them degrades the transcript rather
+  than declining to correct it), the pronoun "I", acronyms, custom vocabulary, and names -- a
+  word Whisper capitalised anywhere other than a sentence start, which then stays capitalised
+  everywhere including at a sentence start. Major sentence breaks survive as a bare full stop;
+  the text does not end on one. Disfluencies go, slang stays.
+- `CleanupBackend.VERBATIM` keeps informal out of the "basic cleanup" tag and the fallback
+  toast. Informal not using the LLM is the mode working, not a shortfall.
+- 17 tests in `VerbatimFormatterTest`, including both reported cases verbatim.
+
+### Cleanup styles that actually differ (v0.1.2, budgets since revised in v0.1.3)
 
 Informal and business produced near-identical text. The prompt was only half of it; the
 dominant cause was `isFaithful` rejecting any output introducing more than 30% new content
@@ -175,15 +204,17 @@ first run present as a spinner hanging for minutes.
 
 **Follow-ups from the v0.1.2 work**
 
-- **The new cleanup styles are unverified on-device.** The thresholds are validated by unit
+- **The LLM-backed styles are unverified on-device.** Informal is deterministic and covered by
+  exact-output tests. Casual, standard and business are not: their thresholds are validated by unit
   tests against hand-written examples, not against real Qwen 0.5B output. The thing to check
   is the `RULES_FALLBACK` rate per mode: transcripts record `backend`, so if business still
   falls back far more often than informal, the budget is still too tight. That query is the
   measurement, not a guess.
-- **`RuleBasedCleaner` is still mode-blind** apart from filler stripping and a trailing full
-  stop. It is what runs when no cleanup model is downloaded, so on a rules-only install the
-  four styles remain nearly identical. Fixing that properly means either requiring the LLM for
-  style or writing per-mode deterministic transforms.
+- **Casual, standard and business are still identical without a cleanup model.** Informal now
+  has its own deterministic path, but the other three fall to the same rules branch, which
+  varies only by filler stripping and a trailing full stop. On a rules-only install those
+  three read alike. Fixing it means per-mode deterministic transforms, or telling the user in
+  Settings that three of the four styles need the cleanup model.
 - **No instrumented test covers the new history interactions.** `HistorySelection` is pure and
   tested; the Compose wiring around it, the delete confirmations and the clipboard/share
   intents are not. Same gap the seam-tests item below describes.
@@ -216,14 +247,6 @@ first run present as a spinner hanging for minutes.
 
 **Smaller**
 
-- **CI cannot build a release — `RELEASE_KEYSTORE_PASSWORD` is wrong.** v0.1.1 was built and
-  published from the local machine as a workaround. The other three secrets are correct
-  (`RELEASE_KEYSTORE_BASE64` was re-uploaded from bash after PowerShell's pipe corrupted it;
-  PowerShell applies console encoding and line-wrapping to strings piped into a native command,
-  so use `--body`, not a pipe). Fix by running, from the repo root:
-  `gh secret set RELEASE_KEYSTORE_PASSWORD --body ((Get-Content keystore.properties | Where-Object {$_ -like 'storePassword=*'}) -replace '^storePassword=','')`
-  and the same for `keyPassword` into `RELEASE_KEY_PASSWORD`. Until then a `v*` tag fails at the
-  keystore gate in about 50 seconds, naming which secret is at fault.
 - **Deferred review findings**, all judged non-blocking at the time: `prewarm` has no fast path
   when both models are already resident, so every focus event still allocates and takes the
   engine mutex; and the `warnedCleanupFallback` reset sits inside the `if (inserted)` branch, so
