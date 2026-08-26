@@ -1,6 +1,10 @@
 # LocalScribe Android — Handoff
 
-_Last updated: 2026-08-25. Repo: https://github.com/Kallbrig/localscribe (public). Default branch `master`._
+_Last updated: 2026-08-26. Repo: https://github.com/Kallbrig/localscribe (public). Default branch `master`._
+
+**v0.1.1 is released**: https://github.com/Kallbrig/localscribe/releases/tag/v0.1.1 — the first
+release this repo has ever published. Signed with the real keystore, so it and everything after
+it can be installed over one another. Obtainium can track the repo directly.
 
 Verified on a Galaxy S25 Ultra (Android 16, 8 cores, 11.4 GB RAM, arm64-v8a).
 Unit suite: 67 tests, all passing. Build with `./gradlew :app:assembleDebug` — `JAVA_HOME`
@@ -10,6 +14,29 @@ cannot run the build.
 ---
 
 ## Done
+
+### Release signing and the release pipeline
+
+Release builds were signed with the debug keystore, whose password is public and which CI
+regenerates per run — consecutive releases would have carried different signatures and been
+uninstallable over one another (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`, taking transcript
+history with them).
+
+- Signing resolves from `keystore.properties` (gitignored, template committed as
+  `keystore.properties.example`) then the `LOCALSCRIBE_*` environment variables. No debug
+  fallback exists.
+- A `taskGraph.whenReady` guard fails any `assemble*/bundle*/package*Release` task outright
+  when signing is unconfigured, so a tag cannot quietly publish an unsigned APK. Debug builds
+  are unaffected.
+- v3 signing enabled — it carries a certificate lineage, the only mechanism for rotating this
+  key later. At `minSdk 28` apksigner emits v3 alone and reports v2 absent; that is correct.
+- `release.yml` decodes a base64 keystore secret, verifies it against a known SHA-256 and opens
+  it with the supplied password/alias *before* the ~8 minute native build, then verifies the
+  built APK is not debug-signed before attaching it.
+- **`gradlew` was committed as mode `100644`.** Every CI and release job since the repo was
+  created died with "Permission denied" (exit 126) before Gradle started. It stayed invisible
+  because the push trigger pointed at `main` while the branch is `master`, and no PR has ever
+  been opened. Both fixed. The "67 tests passing" claim had only ever been true locally.
 
 ### Resident model lifecycle
 
@@ -97,6 +124,38 @@ first run present as a spinner hanging for minutes.
 
 ## To do
 
+**Requested next, not started**
+
+- **Cleanup modes are indistinguishable — informal and business produce near-identical text.**
+  Diagnosed but unfixed. Two mechanisms, and the second is the dominant one:
+
+  1. `QwenCleaner` splices `mode.promptHint` (one sentence) into ~120 words of fixed system
+     prompt that instructs the model to *preserve* everything: "never add reactions, facts,
+     opinions", "preserve the speaker's perspective, intent, names, places, and claims". That
+     directly contradicts BUSINESS's "rewrite as polished, concise professional
+     communication", and the conservative half wins on both volume and forcefulness.
+  2. `TextCleanupUtils.isFaithful` rejects output where >30% of content words are new — which
+     is precisely what a business rewrite is. Worked example: source `um so I was thinking like
+     maybe we could uh push the deadline back a week you know`; a correct business output `I
+     propose we extend the deadline by one week.` introduces `{propose, extend, one}` of 6
+     content words = 50%, rejected, silently falling back to `RuleBasedCleaner`, which is
+     mode-blind apart from filler stripping and a trailing period. Note the denominator is the
+     *edited* word count, so concision raises the ratio: "polished, concise" is penalized
+     twice over. The check mathematically forbids the transformation the mode exists to do.
+
+  Fixing the prompt alone makes the fallback fire *more*. The fix is per-mode faithfulness
+  thresholds (or bypassing the vocabulary check for BUSINESS/CASUAL while keeping the
+  question-preservation and length guards), plus per-mode prompts not fighting a conservative
+  preamble.
+
+  **Verifiable before changing anything:** transcripts have recorded `backend` since `c892e6d`.
+  If this analysis is right, BUSINESS dictations show `RULES_FALLBACK` far more often than
+  INFORMAL ones. That is a query against existing data, not a guess.
+
+- **History interaction.** Requested: select, delete, and otherwise act on individual
+  transcripts. Today `HistoryScreen` is read-only with search plus a global clear;
+  `TranscriptDao` has no per-row delete.
+
 **Not started, from the original priority list**
 
 - **Voice activity detection.** Auto-stop on silence, and trim leading/trailing silence before
@@ -125,11 +184,14 @@ first run present as a spinner hanging for minutes.
 
 **Smaller**
 
-- **Release signing.** `release.yml` is fully wired and waits on a `v*` tag, but the release
-  build is debug-signed — see Concerns. Needs a real keystore plus four GitHub secrets before
-  any tag is pushed.
-- **CI push trigger.** `.github/workflows/ci.yml` triggers its push job on `main`, but the
-  default branch is `master`, so it never fires on merge. The `pull_request` trigger still works.
+- **CI cannot build a release — `RELEASE_KEYSTORE_PASSWORD` is wrong.** v0.1.1 was built and
+  published from the local machine as a workaround. The other three secrets are correct
+  (`RELEASE_KEYSTORE_BASE64` was re-uploaded from bash after PowerShell's pipe corrupted it;
+  PowerShell applies console encoding and line-wrapping to strings piped into a native command,
+  so use `--body`, not a pipe). Fix by running, from the repo root:
+  `gh secret set RELEASE_KEYSTORE_PASSWORD --body ((Get-Content keystore.properties | Where-Object {$_ -like 'storePassword=*'}) -replace '^storePassword=','')`
+  and the same for `keyPassword` into `RELEASE_KEY_PASSWORD`. Until then a `v*` tag fails at the
+  keystore gate in about 50 seconds, naming which secret is at fault.
 - **Onboarding does not mention models.** It ends with "You're all set" while no model is
   downloaded. Now that downloads live in Settings, a first-run user gets a "not downloaded"
   error on their first dictation with nothing having pointed them at Settings.
@@ -150,13 +212,12 @@ first run present as a spinner hanging for minutes.
   runtime CPU feature check that fails gracefully (XS–S), or whisper.cpp's approach of building
   two library variants and choosing at load time (M). Currently unaddressed.
 
-- **The release APK is debug-signed.** `app/build.gradle.kts` still uses
-  `signingConfig = signingConfigs.getByName("debug")` for the release build type. Two
-  consequences: CI runners generate a fresh debug keystore per run, so consecutive releases
-  would carry different signatures and could not be installed over one another
-  (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`, losing local transcript history); and the debug keystore
-  password is publicly known, so a forged "update" would be accepted as legitimate.
-  **Do not push a `v*` tag until this is fixed** — the release workflow would happily publish it.
+- **The keystore exists in exactly one place.** `localscribe-release.jks` and its password live
+  only on the local machine, both gitignored. Losing either means never being able to update
+  anyone who installed v0.1.1 or later. Back both up off that machine.
+
+- **A debug-signed build may still be on the test device.** It cannot be updated over by v0.1.1;
+  it must be uninstalled first, which wipes local transcript history. One-time cost.
 
 - **No Room migration test.** `exportSchema = false`, so there is no schema JSON to diff and no
   instrumented migration test. The v1 to v2 migration is covered only by mapping unit tests and
