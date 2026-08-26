@@ -17,6 +17,8 @@ local.properties
 captures/
 *.jks
 *.keystore
+# Real signing credentials; keystore.properties.example is the committed template
+keystore.properties
 
 # Native submodule build artifacts
 app/src/main/cpp/whisper.cpp/build/
