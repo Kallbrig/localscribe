@@ -2,6 +2,40 @@
 
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and semantic versioning.
 
+## [0.1.3] - 2026-08-26
+
+### Changed
+
+- The four cleanup styles are now a gradient in *what is allowed to change*, rather than four
+  wordings of "tidy this up":
+
+  | Style | Grammar & punctuation | Word choice |
+  |---|---|---|
+  | Informal | left alone | exact |
+  | Casual | corrected | exact |
+  | Standard | corrected | tightened |
+  | Business | corrected | rewritten |
+
+- **Informal is now near-verbatim and no longer runs the LLM at all.** Whisper emits
+  prose-formatted text -- sentence case, commas, terminal punctuation -- and informal now undoes
+  that instead of reinforcing it. `Hey man, what's going on?` stays `hey man what's going on`.
+  A language model cannot be reliably talked out of tidying (it was returning `Hey man, what's
+  up?`, swapping the words as well as the punctuation), so informal is deterministic:
+  substitution is not merely rejected but impossible.
+- Informal keeps apostrophes already present, the pronoun "I", acronyms, custom vocabulary, and
+  names -- a word Whisper capitalised anywhere other than a sentence start. It keeps major
+  sentence breaks as a bare full stop and does not end on one. Disfluencies ("um", "uh") go;
+  slang ("like", "you know") stays, because that is the register.
+- Casual now fixes grammar and punctuation while keeping word choice exact, and standard is the
+  style that tightens wording. Their vocabulary budgets moved to match (0.15 and 0.35).
+
+### Added
+
+- `CleanupBackend.VERBATIM`, so informal transcripts are not labelled "basic cleanup" in
+  history and do not trigger the cleanup-fallback toast. Informal not using the LLM is the
+  mode working, not a shortfall.
+- 17 tests covering the informal contract, including both reported cases verbatim.
+
 ## [0.1.2] - 2026-08-26
 
 ### Added

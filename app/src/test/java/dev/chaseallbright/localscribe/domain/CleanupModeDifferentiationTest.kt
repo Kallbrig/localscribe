@@ -39,6 +39,14 @@ class CleanupModeDifferentiationTest {
     }
 
     @Test
+    fun `informal output is the speaker's own words in a texting register`() {
+        assertEquals(
+            RuleBasedCleaner().clean("Hey man, what's going on?", CleanupMode.INFORMAL, emptyList()).text,
+            "hey man what's going on"
+        )
+    }
+
+    @Test
     fun `the worked example from the diagnosis now survives business`() {
         val source = "um so I was thinking like maybe we could uh push the deadline back a week you know"
         val edited = "I propose we extend the deadline by one week."
@@ -115,7 +123,7 @@ class CleanupModeDifferentiationTest {
         val source = "we should probably get the thing sorted out before the end of the week"
         // Padded with the source's own words so the vocabulary threshold cannot fire and the
         // length rule is the only thing under test.
-        val padded = "$source $source"
+        val padded = "$source before the end of the week"
 
         assertTrue(
             "standard's looser policy should still accept this",
@@ -144,25 +152,55 @@ class CleanupModeDifferentiationTest {
     }
 
     @Test
-    fun `each mode sends the model a distinct instruction and example`() {
-        val instructions = CleanupMode.entries.map { it.instruction }
+    fun `each LLM mode sends a distinct instruction and example`() {
+        val llmModes = CleanupMode.entries.filter { it.usesLlm }
+        val instructions = llmModes.map { it.instruction }
         val examples = CleanupMode.entries.map { it.exampleOutput }
 
         assertEquals("instructions must not be shared between modes", instructions.size, instructions.toSet().size)
         assertEquals("examples must not be shared between modes", examples.size, examples.toSet().size)
+        assertTrue("every LLM mode needs a brief", instructions.none { it.isBlank() })
     }
 
     @Test
-    fun `the prompt actually differs between informal and business`() {
-        var informalPrompt = ""
+    fun `informal never reaches the model at all`() {
+        var generatorCalled = false
+        val result = QwenCleaner { _, _ -> generatorCalled = true; "Hey man, what's up?" }
+            .clean("hey man what's going on", CleanupMode.INFORMAL, emptyList())
+
+        assertFalse("informal must not spend a model call it will only reject", generatorCalled)
+        assertEquals(CleanupBackend.VERBATIM, result.backend)
+        assertEquals("hey man what's going on", result.text)
+    }
+
+    @Test
+    fun `the prompt differs between the LLM modes`() {
+        var casualPrompt = ""
         var businessPrompt = ""
-        QwenCleaner { prompt, _ -> informalPrompt = prompt; "ok" }
-            .clean(dictation, CleanupMode.INFORMAL, emptyList())
+        QwenCleaner { prompt, _ -> casualPrompt = prompt; "ok" }
+            .clean(dictation, CleanupMode.CASUAL, emptyList())
         QwenCleaner { prompt, _ -> businessPrompt = prompt; "ok" }
             .clean(dictation, CleanupMode.BUSINESS, emptyList())
 
-        assertNotEquals(informalPrompt, businessPrompt)
+        assertNotEquals(casualPrompt, businessPrompt)
         assertTrue(businessPrompt.contains(CleanupMode.BUSINESS.exampleOutput))
-        assertFalse(businessPrompt.contains(CleanupMode.INFORMAL.exampleOutput))
+        assertFalse(businessPrompt.contains(CleanupMode.CASUAL.exampleOutput))
+    }
+
+    @Test
+    fun `casual keeps word choice exact and business does not`() {
+        // The gradient: casual may fix grammar but not swap words; business may do both.
+        assertTrue(
+            CleanupMode.BUSINESS.policy.maxIntroducedContentWordRatio >
+                CleanupMode.STANDARD.policy.maxIntroducedContentWordRatio
+        )
+        assertTrue(
+            CleanupMode.STANDARD.policy.maxIntroducedContentWordRatio >
+                CleanupMode.CASUAL.policy.maxIntroducedContentWordRatio
+        )
+        assertFalse(
+            "casual must reject a synonym swap",
+            TextCleanupUtils.isFaithful(dictation, businessRewrite, CleanupMode.CASUAL)
+        )
     }
 }

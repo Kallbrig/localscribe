@@ -23,6 +23,10 @@ fun interface TextGenerator {
 class QwenCleaner(private val generator: TextGenerator) : Cleaner {
 
     override fun clean(text: String, mode: CleanupMode, vocabulary: List<String>): CleanResult {
+        // Informal is deterministic by design; loading a model only to reject its tidying is
+        // wasted work. Guarded here as well as in AutoCleaner so no caller can route around it.
+        if (!mode.usesLlm) return RuleBasedCleaner().clean(text, mode, vocabulary)
+
         val vocab = vocabulary.joinToString(", ").ifEmpty { "none" }
 
         val systemPrompt = buildString {

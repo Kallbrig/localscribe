@@ -248,6 +248,8 @@ private fun HistoryRow(
     onShare: () -> Unit,
     onDelete: () -> Unit
 ) {
+    // VERBATIM is deliberately excluded: informal mode never runs the LLM, so labelling it
+    // "basic cleanup" would report the mode working correctly as a shortfall.
     val basicCleanup = entry.cleanupBackend == CleanupBackend.RULES.name ||
         entry.cleanupBackend == CleanupBackend.RULES_FALLBACK.name
 

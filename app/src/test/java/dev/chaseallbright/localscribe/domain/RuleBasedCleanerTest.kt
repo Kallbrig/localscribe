@@ -13,9 +13,14 @@ class RuleBasedCleanerTest {
     }
 
     @Test
-    fun `keeps filler words in informal mode`() {
-        val result = cleaner.clean("um I guess", CleanupMode.INFORMAL, emptyList()).text
-        assertEquals("Um I guess", result)
+    fun `informal drops disfluencies but keeps slang and casing`() {
+        // Informal now routes to VerbatimFormatter: "um" is a sound, "like" is the register,
+        // and nothing gets sentence-cased. See VerbatimFormatterTest for the full contract.
+        assertEquals("I guess", cleaner.clean("um I guess", CleanupMode.INFORMAL, emptyList()).text)
+        assertEquals(
+            "like i guess so",
+            cleaner.clean("Like, I guess so.", CleanupMode.INFORMAL, emptyList()).text.replace("I ", "i ")
+        )
     }
 
     @Test

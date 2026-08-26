@@ -29,7 +29,9 @@ class AutoCleaner(modelPath: String?, contextSize: Int = 2048, threads: Int = 4)
     }
 
     override fun clean(text: String, mode: CleanupMode, vocabulary: List<String>): CleanResult =
-        if (closed) RuleBasedCleaner().clean(text, mode, vocabulary)
+        // A mode that does not use the LLM skips the delegate entirely, so informal costs
+        // nothing even when a cleanup model is resident.
+        if (closed || !mode.usesLlm) RuleBasedCleaner().clean(text, mode, vocabulary)
         else delegate.clean(text, mode, vocabulary)
 
     override fun close() {
