@@ -2,18 +2,67 @@
 
 _Last updated: 2026-08-26. Repo: https://github.com/Kallbrig/localscribe (public). Default branch `master`._
 
-**v0.1.1 is released**: https://github.com/Kallbrig/localscribe/releases/tag/v0.1.1 — the first
-release this repo has ever published. Signed with the real keystore, so it and everything after
-it can be installed over one another. Obtainium can track the repo directly.
+**v0.1.2 is released**: https://github.com/Kallbrig/localscribe/releases/tag/v0.1.2. Signed with
+the same certificate as v0.1.1 (`73ef2d6d…`), so it installs straight over it and Obtainium can
+track the repo. Unit suite: 89 tests, all passing.
+
+Both releases were built and published **from the local machine**, not by CI — see the open
+item below.
 
 Verified on a Galaxy S25 Ultra (Android 16, 8 cores, 11.4 GB RAM, arm64-v8a).
-Unit suite: 67 tests, all passing. Build with `./gradlew :app:assembleDebug` — `JAVA_HOME`
+Build with `./gradlew :app:assembleDebug` — `JAVA_HOME`
 must point at the repo's vendored `.tools/jdk17`, since the system JRE is 32-bit Java 8 and
 cannot run the build.
 
 ---
 
 ## Done
+
+### Cleanup styles that actually differ (v0.1.2)
+
+Informal and business produced near-identical text. The prompt was only half of it; the
+dominant cause was `isFaithful` rejecting any output introducing more than 30% new content
+words -- precisely what a business rewrite is -- so business silently fell back to the
+mode-blind `RuleBasedCleaner`.
+
+- `FaithfulnessPolicy` per mode: its own vocabulary budget, length ratio and length slack.
+  Standard keeps the original numbers exactly, so its behaviour is unchanged.
+- Each mode carries its own `instruction` and a one-shot `exampleOutput` for a shared example
+  dictation. On a 0.5B model the example moves the output more than the adjective does.
+- The shared preamble no longer says "preserve the wording" -- it forbids only replying and
+  inventing. It was previously arguing against whichever style the user had selected.
+- Guards are now unconditional in every mode rather than emergent from one threshold: a
+  dictated question stays a question, the text cannot grow, and a figure never dictated is
+  rejected (`numbers(source).containsAll(numbers(edited))`).
+- **The vocabulary budget stays strict below 8 source content words.** No flat threshold works:
+  the reply "I'm fine, how about you?" to "Hi, how are you?" scores 0.50 and must be rejected,
+  while a real business rewrite scores 0.67 and must be accepted. Source length is what
+  separates them -- a three-word denominator is noise, and short dictations are exactly where
+  a model is most likely to reply rather than edit.
+- 13 tests in `CleanupModeDifferentiationTest`.
+
+### History you can act on (v0.1.2)
+
+- Tap to expand a row: raw text beside cleaned, with copy, share and delete.
+- Long-press starts multi-select; select-all and bulk delete via `deleteByIds`. Deletions
+  confirm and state exactly what they remove.
+- `HistorySelection` is a pure value class (9 tests). Selection is held **by id and pruned
+  against the visible rows** -- the list is a live Flow, so a new dictation or a changed
+  search query re-filters underneath it and index-based selection would delete rows the user
+  could not see.
+- Expanding is disabled during multi-select: one gesture with two meanings is how you delete
+  the wrong transcript.
+
+### Onboarding covers models (v0.1.2)
+
+- `ModelSetupRow` shows the speech model as required (size, progress, retry) and the cleanup
+  model as explicitly optional, with rules cleanup named as the fallback.
+- "You're all set" is gated on the speech model being on disk, not just on permissions.
+- `startRecording()` refuses to open the microphone without a speech model. It was only
+  touched once the pipeline ran, so a missing one surfaced *after* the user had spoken and the
+  recording was discarded.
+- Fixed the three places that still documented downloads happening during a first dictation:
+  `README.md`, `docs/ARCHITECTURE.md`, and a comment in `ModelSession`.
 
 ### Release signing and the release pipeline
 
@@ -124,37 +173,20 @@ first run present as a spinner hanging for minutes.
 
 ## To do
 
-**Requested next, not started**
+**Follow-ups from the v0.1.2 work**
 
-- **Cleanup modes are indistinguishable — informal and business produce near-identical text.**
-  Diagnosed but unfixed. Two mechanisms, and the second is the dominant one:
-
-  1. `QwenCleaner` splices `mode.promptHint` (one sentence) into ~120 words of fixed system
-     prompt that instructs the model to *preserve* everything: "never add reactions, facts,
-     opinions", "preserve the speaker's perspective, intent, names, places, and claims". That
-     directly contradicts BUSINESS's "rewrite as polished, concise professional
-     communication", and the conservative half wins on both volume and forcefulness.
-  2. `TextCleanupUtils.isFaithful` rejects output where >30% of content words are new — which
-     is precisely what a business rewrite is. Worked example: source `um so I was thinking like
-     maybe we could uh push the deadline back a week you know`; a correct business output `I
-     propose we extend the deadline by one week.` introduces `{propose, extend, one}` of 6
-     content words = 50%, rejected, silently falling back to `RuleBasedCleaner`, which is
-     mode-blind apart from filler stripping and a trailing period. Note the denominator is the
-     *edited* word count, so concision raises the ratio: "polished, concise" is penalized
-     twice over. The check mathematically forbids the transformation the mode exists to do.
-
-  Fixing the prompt alone makes the fallback fire *more*. The fix is per-mode faithfulness
-  thresholds (or bypassing the vocabulary check for BUSINESS/CASUAL while keeping the
-  question-preservation and length guards), plus per-mode prompts not fighting a conservative
-  preamble.
-
-  **Verifiable before changing anything:** transcripts have recorded `backend` since `c892e6d`.
-  If this analysis is right, BUSINESS dictations show `RULES_FALLBACK` far more often than
-  INFORMAL ones. That is a query against existing data, not a guess.
-
-- **History interaction.** Requested: select, delete, and otherwise act on individual
-  transcripts. Today `HistoryScreen` is read-only with search plus a global clear;
-  `TranscriptDao` has no per-row delete.
+- **The new cleanup styles are unverified on-device.** The thresholds are validated by unit
+  tests against hand-written examples, not against real Qwen 0.5B output. The thing to check
+  is the `RULES_FALLBACK` rate per mode: transcripts record `backend`, so if business still
+  falls back far more often than informal, the budget is still too tight. That query is the
+  measurement, not a guess.
+- **`RuleBasedCleaner` is still mode-blind** apart from filler stripping and a trailing full
+  stop. It is what runs when no cleanup model is downloaded, so on a rules-only install the
+  four styles remain nearly identical. Fixing that properly means either requiring the LLM for
+  style or writing per-mode deterministic transforms.
+- **No instrumented test covers the new history interactions.** `HistorySelection` is pure and
+  tested; the Compose wiring around it, the delete confirmations and the clipboard/share
+  intents are not. Same gap the seam-tests item below describes.
 
 **Not started, from the original priority list**
 
@@ -192,9 +224,6 @@ first run present as a spinner hanging for minutes.
   `gh secret set RELEASE_KEYSTORE_PASSWORD --body ((Get-Content keystore.properties | Where-Object {$_ -like 'storePassword=*'}) -replace '^storePassword=','')`
   and the same for `keyPassword` into `RELEASE_KEY_PASSWORD`. Until then a `v*` tag fails at the
   keystore gate in about 50 seconds, naming which secret is at fault.
-- **Onboarding does not mention models.** It ends with "You're all set" while no model is
-  downloaded. Now that downloads live in Settings, a first-run user gets a "not downloaded"
-  error on their first dictation with nothing having pointed them at Settings.
 - **Deferred review findings**, all judged non-blocking at the time: `prewarm` has no fast path
   when both models are already resident, so every focus event still allocates and takes the
   engine mutex; and the `warnedCleanupFallback` reset sits inside the `if (inserted)` branch, so
