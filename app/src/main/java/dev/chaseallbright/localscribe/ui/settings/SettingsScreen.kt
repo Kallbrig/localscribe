@@ -87,8 +87,8 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             CleanupMode.entries.forEach { mode ->
                 RadioOptionRow(
                     selected = cleanupMode == mode,
-                    title = mode.name.lowercase().replaceFirstChar { it.uppercase() },
-                    description = mode.promptHint,
+                    title = mode.displayName,
+                    description = mode.description,
                     onClick = {
                         cleanupMode = mode
                         preferences.cleanupMode = mode

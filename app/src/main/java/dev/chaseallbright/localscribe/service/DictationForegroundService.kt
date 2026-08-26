@@ -22,6 +22,7 @@ import dev.chaseallbright.localscribe.dictation.DictationUiState
 import dev.chaseallbright.localscribe.dictation.ModelSession
 import dev.chaseallbright.localscribe.domain.DictationPipeline
 import dev.chaseallbright.localscribe.domain.WhisperTranscriber
+import dev.chaseallbright.localscribe.models.ModelManager
 import dev.chaseallbright.localscribe.settings.AppPreferences
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -57,6 +58,21 @@ class DictationForegroundService : Service() {
             stopSelf()
             return
         }
+        // Checked before the microphone opens, not after. The model is only touched once the
+        // pipeline runs, so a missing one used to surface only after the user had already
+        // spoken -- and the recording was then discarded.
+        val whisperTier = AppPreferences(applicationContext).whisperTier
+        if (!ModelManager(applicationContext).isWhisperModelReady(whisperTier)) {
+            DictationController.setState(
+                DictationUiState.Error(
+                    "${whisperTier.displayName} speech model isn't downloaded. " +
+                        "Open LocalScribe to download it."
+                )
+            )
+            stopSelf()
+            return
+        }
+
         startForegroundWithNotification(getString(R.string.dictation_notification_recording))
         audioRecorder.start()
         isRecording = true

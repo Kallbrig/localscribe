@@ -2,6 +2,40 @@
 
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and semantic versioning.
 
+## [0.1.2] - 2026-08-26
+
+### Added
+
+- History rows can be acted on. Tap a transcript to expand it and see the raw text alongside
+  the cleaned version, with copy, share and delete. Long-press to start multi-select, then
+  select all or delete in bulk. Deletions confirm first and say exactly what they will remove.
+- Onboarding now includes the models. It shows the speech model as a required step with size,
+  progress and retry, and the cleanup model as explicitly optional, then holds back "You're
+  all set" until the speech model is actually on disk.
+
+### Changed
+
+- Cleanup styles now produce meaningfully different text. Informal and business were close to
+  identical because the faithfulness check rejected any output introducing more than 30% new
+  content words -- which is exactly what a business rewrite is -- so business silently fell
+  back to the mode-blind rule cleaner. Each mode now carries its own rewriting budget, its own
+  instruction, and a one-shot example of its own output. The shared prompt no longer tells the
+  model to preserve wording, which was contradicting whichever style was selected.
+- Faithfulness guards that stop the model answering a dictation instead of editing it now hold
+  unconditionally in every mode: a dictated question stays a question, the text cannot balloon,
+  and a figure that was never dictated is rejected outright. The vocabulary threshold is the
+  only part that varies by mode, and it stays strict on short dictations, where the measure is
+  unreliable and a model is most likely to reply rather than edit.
+
+### Fixed
+
+- Dictation no longer starts recording when the speech model is missing. The model was only
+  touched once the pipeline ran, so a missing one surfaced after the user had already spoken
+  and the recording was discarded.
+- Corrected `README.md`, `docs/ARCHITECTURE.md` and a comment in `ModelSession` that all still
+  described models being downloaded during a first dictation, which stopped being true when
+  downloads moved to Settings.
+
 ## [0.1.1] - 2026-08-26
 
 ### Added

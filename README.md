@@ -36,9 +36,11 @@ the two.
      text into them. This is the one Android permission that can't be granted from inside
      the app; the onboarding screen deep-links to the system settings page for it.
    - **Notifications** (Android 13+) -- required by Android while recording/processing.
-4. Focus any text field, tap the mic bubble, dictate, tap the checkmark. First use downloads
-   the speech and cleanup models (a few hundred MB combined); after that everything is
-   instant and fully offline.
+4. Download the speech model when onboarding prompts for it (a few hundred MB, one time).
+   The cleanup model is optional -- without it transcripts get basic rule-based tidying
+   instead of AI cleanup.
+5. Focus any text field, tap the mic bubble, dictate, tap the checkmark. Everything after
+   the download is fully offline.
 
 ## Building from source
 

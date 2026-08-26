@@ -20,6 +20,13 @@ interface TranscriptDao {
     )
     fun search(query: String = "", limit: Int = 200): Flow<List<TranscriptEntity>>
 
+    @Query("DELETE FROM transcripts WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    /** Bulk delete for multi-select. One statement, so the Flow emits once rather than per row. */
+    @Query("DELETE FROM transcripts WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: Collection<Long>)
+
     @Query("DELETE FROM transcripts")
     suspend fun clear()
 }

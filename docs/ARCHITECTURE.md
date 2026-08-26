@@ -36,8 +36,8 @@ itself.
    service that captures 16kHz mono PCM into memory via `AudioRecorder` (no streaming --
    the whole clip is buffered, matching the desktop's press/release model translated to
    tap-to-start/tap-to-finish).
-3. On confirm, the service ensures both models are present (downloading via
-   `ModelManager`/`ModelDownloader` if this is the first use of that tier), runs
+3. The service refuses to start recording unless the speech model is already on disk --
+   models are downloaded from onboarding or Settings, never inside a dictation. On confirm it runs
    `DictationPipeline` (`WhisperTranscriber` -> `AutoCleaner`), and persists the result to
    Room history.
 4. `AutoCleaner` prefers the local Qwen2.5 GGUF model through `llama-jni`; if it fails to

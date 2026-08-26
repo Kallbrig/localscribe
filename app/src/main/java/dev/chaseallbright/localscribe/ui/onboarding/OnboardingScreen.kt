@@ -24,17 +24,34 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.HorizontalDivider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chaseallbright.localscribe.models.ModelDownloadManager
+import dev.chaseallbright.localscribe.models.ModelDownloadState
+import dev.chaseallbright.localscribe.models.ModelManager
 import dev.chaseallbright.localscribe.permissions.PermissionsState
+import dev.chaseallbright.localscribe.settings.AppPreferences
 import dev.chaseallbright.localscribe.ui.common.PermissionRow
 
 @Composable
 fun OnboardingScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val modelManager = remember(context) { ModelManager(context) }
+    val preferences = remember(context) { AppPreferences(context) }
+    val downloadStates by ModelDownloadManager.states.collectAsStateWithLifecycle()
     var status by remember { mutableStateOf(PermissionsState.current(context)) }
+    // Resolving a tier can fall through to a RAM query, so hold it rather than re-reading it
+    // on every recomposition -- download progress recomposes on each callback.
+    var whisperTier by remember { mutableStateOf(preferences.whisperTier) }
+    var cleanupTier by remember { mutableStateOf(preferences.cleanupTier) }
 
     fun refresh() {
         status = PermissionsState.current(context)
+        whisperTier = preferences.whisperTier
+        cleanupTier = preferences.cleanupTier
     }
 
     DisposableEffect(lifecycleOwner) {
@@ -56,6 +73,7 @@ fun OnboardingScreen(modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -106,9 +124,61 @@ fun OnboardingScreen(modifier: Modifier = Modifier) {
             )
         }
 
-        if (status.allGranted) {
+        HorizontalDivider()
+
+        Text(text = "Models", style = MaterialTheme.typography.titleMedium)
+        Text(
+            text = "Downloaded once and then used entirely offline. Nothing you dictate is ever uploaded.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+
+        val whisperFile = modelManager.speechModelFile(whisperTier)
+        val whisperState = downloadStates[whisperTier.id]
+            ?: if (whisperFile.isFile) ModelDownloadState.Downloaded else ModelDownloadState.Absent
+
+        ModelSetupRow(
+            spec = whisperTier,
+            file = whisperFile,
+            state = whisperState,
+            required = true
+        )
+
+        val cleanupFile = modelManager.cleanupModelFile(cleanupTier)
+        val cleanupState = downloadStates[cleanupTier.id]
+            ?: if (cleanupFile.isFile) ModelDownloadState.Downloaded else ModelDownloadState.Absent
+
+        ModelSetupRow(
+            spec = cleanupTier,
+            file = cleanupFile,
+            state = cleanupState,
+            required = false
+        )
+        Text(
+            text = "Without the cleanup model, transcripts still work -- they get basic " +
+                "rule-based tidying instead of AI cleanup.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Text(
+            text = "Other models and cleanup styles are in Settings.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        // Deliberately gated on the speech model too. Saying "all set" while no model is on
+        // disk is what sent first-run users into a failed dictation with nothing having
+        // pointed them anywhere.
+        val speechReady = whisperState is ModelDownloadState.Downloaded
+        if (status.allGranted && speechReady) {
             Text(
                 text = "You're all set. Focus any text field and tap the mic bubble to dictate.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.primary
+            )
+        } else if (status.allGranted) {
+            Text(
+                text = "Permissions are done. Download the speech model above to start dictating.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.primary
             )

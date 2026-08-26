@@ -100,8 +100,8 @@ object ModelSession {
      * Best-effort background warm-up, triggered by focus events. Never downloads and never
      * runs a heavy load unconditionally: a focused text field must not silently kick off a
      * 150MB-1.1GB fetch, so this only pre-warms the whisper model when it's already on disk
-     * (downloads happen on the [withModels]/acquire path, when the user has explicitly started
-     * dictating, matching Settings' "downloads on first use" copy). Whether the cleanup model
+     * downloads at all -- models are fetched only from onboarding or Settings, as a deliberate
+     * and visible action. Whether the cleanup model
      * also gets pre-warmed is decided per call by the engine's cleaner predicate -- a missing
      * cleanup model must never block whisper prewarm, so that gate lives there, not here.
      */
