@@ -2,15 +2,14 @@
 
 _Last updated: 2026-08-26. Repo: https://github.com/Kallbrig/localscribe (public). Default branch `master`._
 
-**v0.1.3 is released**: https://github.com/Kallbrig/localscribe/releases/tag/v0.1.3. Unit
-suite: 109 tests, all passing.
+**Stable: v0.1.7.** **In flight: v0.2.0-beta.1.** Releases now have two channels decided by the
+tag alone -- `vX.Y.Z-beta.N` publishes as a GitHub prerelease that Obtainium skips, `vX.Y.Z` is
+stable and marked Latest. Work accumulates as betas and ships once under a version that means
+something. See [RELEASING.md](RELEASING.md).
 
-**CI now builds and publishes releases on its own.** v0.1.3 is the first release the pipeline
-produced end to end — v0.1.1 and v0.1.2 were built locally because `RELEASE_KEYSTORE_PASSWORD`
-was wrong. Every release shares certificate `73ef2d6d…`, so they install over one another and
-Obtainium can track the repo.
+CI builds and publishes both channels end to end. Every release shares certificate
+`73ef2d6d…`, so all of them install over one another. Unit suite: 135 tests, all passing.
 
-Verified on a Galaxy S25 Ultra (Android 16, 8 cores, 11.4 GB RAM, arm64-v8a).
 Build with `./gradlew :app:assembleDebug` — `JAVA_HOME`
 must point at the repo's vendored `.tools/jdk17`, since the system JRE is 32-bit Java 8 and
 cannot run the build.
@@ -18,6 +17,31 @@ cannot run the build.
 ---
 
 ## Done
+
+### Settings, backup and transfer (v0.1.4 - v0.1.7)
+
+- **Transcripts were being uploaded to Google Drive.** `allowBackup="true"` with no rules means
+  Android Auto Backup sweeps app-private storage, and the Room database sits in exactly that
+  directory. Nothing in the app sent anything anywhere -- an inherited platform default that
+  contradicted the stated promise for three releases.
+- `LocalScribeBackupAgent` overrides `onFullBackup` and hands over files individually, never
+  calling `super` (the default sweep is the bug). XML rules are static and cannot express a
+  user setting, which is why the agent exists. Every category defaults **off**, and onboarding
+  presents the choice rather than leaving it in Settings.
+- Transcripts and vocabulary share one database file, so vocabulary alone travels as an export
+  generated at backup time and merged back on first launch after a restore. Enabling
+  transcripts pulls vocabulary along unavoidably; the UI says so.
+- Export/import to a JSON file via the system file picker, for a device move with no cloud
+  involved. JSON not CSV because dictated text contains commas, quotes and newlines. Import
+  merges and is idempotent -- transcripts are identified by timestamp plus cleaned text, since
+  ids are per-device autoincrement values.
+- History rows: expand for raw vs cleaned, copy, share, delete; long-press for multi-select
+  with bulk delete. Selection is by id and pruned against visible rows, because the list is a
+  live Flow.
+- Selecting an undownloaded model used to switch to it silently, leaving dictation pointed at
+  something that could not load. It now asks, then selects *and* downloads.
+- History durations were one unlabelled figure that was **audio length** but read as processing
+  time. Stage timings are now persisted (Room v2 to v3) and every figure is labelled.
 
 ### Informal is near-verbatim, and the styles are a real gradient (v0.1.3)
 
