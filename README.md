@@ -56,6 +56,12 @@ components it needs via the Android SDK Manager as long as `local.properties` po
 known-good tags; `--recurse-submodules` (or `git submodule update --init --recursive`
 afterward) is required before the native modules will build.
 
+## Releases
+
+Stable builds are tagged `vX.Y.Z` and marked Latest. Betas are tagged `vX.Y.Z-beta.N` and
+published as prereleases -- Obtainium skips them unless you enable **Include prereleases**.
+See [docs/RELEASING.md](docs/RELEASING.md).
+
 ## Architecture
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

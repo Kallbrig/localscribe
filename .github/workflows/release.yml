@@ -27,6 +27,29 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Classify the release channel
+        id: channel
+        run: |
+          # Betas and release candidates are prereleases: GitHub does not mark them Latest,
+          # and Obtainium skips them unless the user opts in. A bare vX.Y.Z is a real release.
+          case "${{ github.ref_name }}" in
+            *-beta.*|*-rc.*)
+              echo "prerelease=true"  >> "$GITHUB_OUTPUT"
+              echo "make_latest=false" >> "$GITHUB_OUTPUT"
+              echo "Channel: prerelease (${{ github.ref_name }})"
+              ;;
+            *-*)
+              echo "::error::Unrecognised prerelease suffix in ${{ github.ref_name }}."
+              echo "::error::Use -beta.N or -rc.N, or a bare vX.Y.Z for a stable release."
+              exit 1
+              ;;
+            *)
+              echo "prerelease=false" >> "$GITHUB_OUTPUT"
+              echo "make_latest=true"  >> "$GITHUB_OUTPUT"
+              echo "Channel: stable (${{ github.ref_name }})"
+              ;;
+          esac
+
       - name: Verify tag matches app version
         run: |
           version=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
@@ -108,6 +131,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          prerelease: ${{ steps.channel.outputs.prerelease }}
+          make_latest: ${{ steps.channel.outputs.make_latest }}
           files: |
             app/build/outputs/apk/release/app-release.apk
             app/build/outputs/apk/release/app-release.apk.sha256

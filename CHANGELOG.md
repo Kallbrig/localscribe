@@ -2,6 +2,18 @@
 
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and semantic versioning.
 
+## [Unreleased]
+
+### Changed
+
+- Releases now have two channels, decided by the tag alone. `v0.2.0-beta.3` and `v0.2.0-rc.1`
+  publish as GitHub prereleases, which are not marked Latest and which Obtainium skips unless
+  you opt in; a bare `v0.2.0` is a stable release. Work accumulates as betas and ships once
+  under a version that means something, rather than every change reaching everyone
+  immediately. See [docs/RELEASING.md](docs/RELEASING.md).
+- Tags with an unrecognised suffix are rejected rather than guessed at, and betas must be
+  numbered so they sort correctly.
+
 ## [0.1.7] - 2026-08-27
 
 ### Fixed
