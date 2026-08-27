@@ -13,6 +13,9 @@ abstract class LocalScribeDatabase : RoomDatabase() {
     abstract fun vocabularyDao(): VocabularyDao
 
     companion object {
+        /** Referenced by the backup agent, which needs the file path without opening Room. */
+        const val NAME = "localscribe.db"
+
         @Volatile private var instance: LocalScribeDatabase? = null
 
         /** v1 -> v2: transcripts learn which cleaner backend produced them. */
@@ -29,7 +32,7 @@ abstract class LocalScribeDatabase : RoomDatabase() {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     LocalScribeDatabase::class.java,
-                    "localscribe.db"
+                    NAME
                 ).addMigrations(MIGRATION_1_2).build().also { instance = it }
             }
     }

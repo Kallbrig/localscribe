@@ -2,6 +2,29 @@
 
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and semantic versioning.
 
+## [0.1.4] - 2026-08-27
+
+### Fixed
+
+- **Transcripts were being uploaded to Google Drive.** `android:allowBackup="true"` was set with
+  no backup rules, so Android Auto Backup included app-private storage by default -- and the
+  Room database holding every transcript ever dictated sits in exactly the directory it sweeps.
+  Nothing in the app's own code sent anything anywhere; this was an inherited platform default,
+  which contradicted the app's stated promise for three releases.
+
+### Added
+
+- Backup is now a per-category choice in Settings, enforced at runtime by a `BackupAgent`
+  rather than declared in static XML. A master switch turns it off entirely; otherwise
+  settings, custom vocabulary and transcript history are chosen individually.
+- **Transcript history is off by default**, so upgrading does not silently begin uploading
+  dictated text, and turning it on shows an explicit warning that the text leaves the device.
+- Transcripts and vocabulary share one database, so vocabulary alone is backed up via a
+  vocabulary-only export generated at backup time and merged back in on first launch after a
+  restore. Enabling transcripts includes vocabulary unavoidably, and the UI says so.
+- Models are never backed up -- hundreds of megabytes and re-downloadable. Audio is still
+  never written to disk at all.
+- 9 tests covering the backup decision logic.
 ## [0.1.3] - 2026-08-26
 
 ### Changed

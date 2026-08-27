@@ -3,7 +3,12 @@ package dev.chaseallbright.localscribe
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import dev.chaseallbright.localscribe.backup.VocabularyRestore
 import dev.chaseallbright.localscribe.dictation.ModelSession
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 const val DICTATION_NOTIFICATION_CHANNEL_ID = "dictation"
 
@@ -11,6 +16,11 @@ class LocalScribeApp : Application() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        // A restore drops a vocabulary export here before the app has ever run; nothing can
+        // consume it at restore time, so the next launch picks it up.
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            VocabularyRestore.importIfPresent(this@LocalScribeApp)
+        }
     }
 
     override fun onTrimMemory(level: Int) {

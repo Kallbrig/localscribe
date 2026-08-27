@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Belt and braces. LocalScribeBackupAgent decides what is actually included at runtime, from
+  the user's choices, and never calls super.onFullBackup(). These exclusions only matter if
+  the agent is ever removed or fails to attach: models are hundreds of megabytes and
+  re-downloadable, and the database holds every transcript ever dictated.
+-->
+<full-backup-content>
+    <exclude domain="file" path="models" />
+    <exclude domain="database" path="localscribe.db" />
+    <exclude domain="database" path="localscribe.db-wal" />
+    <exclude domain="database" path="localscribe.db-shm" />
+</full-backup-content>

@@ -17,6 +17,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -35,6 +36,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import dev.chaseallbright.localscribe.backup.BackupChoices
+import dev.chaseallbright.localscribe.backup.BackupPlan
+import dev.chaseallbright.localscribe.backup.BackupSettings
 import dev.chaseallbright.localscribe.dictation.ModelSession
 import dev.chaseallbright.localscribe.domain.CleanupMode
 import dev.chaseallbright.localscribe.models.CleanupModelTier
@@ -54,6 +58,8 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val preferences = remember(context) { AppPreferences(context) }
     val modelManager = remember(context) { ModelManager(context) }
+    val backupSettings = remember(context) { BackupSettings(context) }
+    var backup by remember { mutableStateOf(backupSettings.choices) }
 
     val downloadStates by ModelDownloadManager.states.collectAsStateWithLifecycle()
 
@@ -134,6 +140,69 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             }
         }
 
+        SettingsSection(title = "Backup") {
+            Text(
+                text = "Everything runs on this device. Android's backup is the one thing that " +
+                    "can copy app data off it -- to Google Drive, or to a new phone. Choose what " +
+                    "it may take.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            fun update(next: BackupChoices) {
+                backup = next
+                backupSettings.choices = next
+            }
+
+            SwitchRow(
+                checked = backup.enabled,
+                title = "Allow Android backup",
+                description = if (backup.enabled) {
+                    "Only the categories ticked below are included."
+                } else {
+                    "Nothing is backed up. Reinstalling starts from scratch."
+                },
+                onCheckedChange = { update(backup.copy(enabled = it)) }
+            )
+
+            if (backup.enabled) {
+                SwitchRow(
+                    checked = backup.settings,
+                    title = "Settings",
+                    description = "Cleanup style, model choice, and these backup options.",
+                    onCheckedChange = { update(backup.copy(settings = it)) }
+                )
+                SwitchRow(
+                    checked = backup.vocabulary,
+                    title = "Custom vocabulary",
+                    description = "The names and terms you added.",
+                    onCheckedChange = { update(backup.copy(vocabulary = it)) }
+                )
+                SwitchRow(
+                    checked = backup.transcripts,
+                    title = "Transcript history",
+                    description = "The text of everything you have dictated.",
+                    onCheckedChange = { update(backup.copy(transcripts = it)) }
+                )
+
+                if (BackupPlan.sendsTranscripts(backup)) {
+                    Text(
+                        text = "Your dictated text will be copied off this device. Transcripts and " +
+                            "vocabulary share one database, so vocabulary is included too.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+
+            Text(
+                text = "Speech and cleanup models are never backed up -- they are large and can " +
+                    "be downloaded again. Audio is never stored at all.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
         SettingsSection(title = "Permissions") {
             PermissionRow(
                 granted = permissionStatus.recordAudioGranted,
@@ -181,6 +250,30 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
             content()
         }
+    }
+}
+
+@Composable
+private fun SwitchRow(
+    checked: Boolean,
+    title: String,
+    description: String,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
