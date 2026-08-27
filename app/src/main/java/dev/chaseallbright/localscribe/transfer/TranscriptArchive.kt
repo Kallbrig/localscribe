@@ -55,6 +55,8 @@ object TranscriptArchive {
                     .put("durationSeconds", entity.durationSeconds.toDouble())
                     .put("mode", entity.mode)
                     .put("cleanupBackend", entity.cleanupBackend)
+                    .put("transcribeMillis", entity.transcribeMillis)
+                    .put("cleanupMillis", entity.cleanupMillis)
             )
         }
         return root.put("transcripts", array).toString(2)
@@ -103,7 +105,10 @@ object TranscriptArchive {
                     language = row.optString("language", "unknown"),
                     durationSeconds = row.optDouble("durationSeconds", 0.0).toFloat(),
                     mode = row.optString("mode").ifBlank { CleanupMode.STANDARD.name },
-                    cleanupBackend = row.optString("cleanupBackend").ifBlank { CleanupBackend.UNKNOWN.name }
+                    cleanupBackend = row.optString("cleanupBackend").ifBlank { CleanupBackend.UNKNOWN.name },
+                    // Absent in archives written before timings were kept; zero reads as "unknown".
+                    transcribeMillis = row.optLong("transcribeMillis", 0L),
+                    cleanupMillis = row.optLong("cleanupMillis", 0L)
                 )
             }
         }

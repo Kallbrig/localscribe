@@ -11,13 +11,25 @@ class DictationPipeline(
     fun process(samples: FloatArray, mode: CleanupMode, vocabulary: List<String>): Transcript {
         val transcribeStart = System.nanoTime()
         val result = transcriber.transcribe(samples, vocabulary)
-        onStageTiming("transcribe", (System.nanoTime() - transcribeStart) / 1_000_000)
+        val transcribeMillis = (System.nanoTime() - transcribeStart) / 1_000_000
+        onStageTiming("transcribe", transcribeMillis)
 
         val cleanStart = System.nanoTime()
         val cleaned = cleaner.clean(result.text, mode, vocabulary)
-        onStageTiming("cleanup", (System.nanoTime() - cleanStart) / 1_000_000)
+        val cleanupMillis = (System.nanoTime() - cleanStart) / 1_000_000
+        onStageTiming("cleanup", cleanupMillis)
 
+        // Audio length, not elapsed processing time -- how long the speaker talked.
         val durationSeconds = samples.size.toFloat() / SAMPLE_RATE_HZ
-        return Transcript(result.text, cleaned.text, result.language, durationSeconds, mode, cleaned.backend)
+        return Transcript(
+            raw = result.text,
+            cleaned = cleaned.text,
+            language = result.language,
+            durationSeconds = durationSeconds,
+            mode = mode,
+            backend = cleaned.backend,
+            transcribeMillis = transcribeMillis,
+            cleanupMillis = cleanupMillis
+        )
     }
 }

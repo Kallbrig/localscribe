@@ -47,6 +47,7 @@ import dev.chaseallbright.localscribe.data.LocalScribeDatabase
 import dev.chaseallbright.localscribe.data.TranscriptDao
 import dev.chaseallbright.localscribe.data.TranscriptEntity
 import dev.chaseallbright.localscribe.domain.CleanupBackend
+import dev.chaseallbright.localscribe.domain.CleanupMode
 import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.launch
@@ -284,9 +285,7 @@ private fun HistoryRow(
             }
 
             Text(
-                text = "${formatTimestamp(entry.createdAtEpochMillis)} · ${entry.mode.lowercase()} · " +
-                    "${"%.1f".format(entry.durationSeconds)}s" +
-                    if (basicCleanup) " · basic cleanup" else "",
+                text = footerFor(entry, basicCleanup),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -297,14 +296,21 @@ private fun HistoryRow(
             if (expanded && !selectionActive) {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
-                if (entry.raw.isNotBlank() && entry.raw != entry.cleaned) {
-                    Text(
-                        text = "Before cleanup",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(text = entry.raw, style = MaterialTheme.typography.bodySmall)
-                }
+                // Always shown, even when identical: opening a row is an explicit request to
+                // compare, and silently omitting half the comparison looks broken.
+                Text(
+                    text = if (entry.raw == entry.cleaned) {
+                        "Before cleanup (unchanged)"
+                    } else {
+                        "Before cleanup"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = entry.raw.ifBlank { "(nothing was transcribed)" },
+                    style = MaterialTheme.typography.bodySmall
+                )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     IconButton(onClick = onCopy) {
@@ -338,6 +344,34 @@ private fun Context.shareText(text: String) {
     }
     startActivity(Intent.createChooser(send, null))
 }
+
+/**
+ * The footer line. Durations are labelled because they are not the same kind of thing:
+ * "spoken" is how long the speaker talked, "transcribe" is how long the model took. An
+ * unlabelled figure was read as the latter when it was the former.
+ */
+private fun footerFor(entry: TranscriptEntity, basicCleanup: Boolean): String {
+    val style = runCatching { CleanupMode.valueOf(entry.mode).displayName }
+        .getOrDefault(entry.mode.lowercase().replaceFirstChar { it.uppercase() })
+
+    return buildString {
+        append(formatTimestamp(entry.createdAtEpochMillis))
+        append(" · ").append(style)
+        append(" · ").append("%.1f".format(entry.durationSeconds)).append("s spoken")
+        // Zero on rows written before timings were kept; showing "0.0s to transcribe" there
+        // would be a claim rather than a gap.
+        if (entry.transcribeMillis > 0) {
+            append(" · ").append(formatMillis(entry.transcribeMillis)).append(" to transcribe")
+        }
+        if (entry.cleanupMillis > 0) {
+            append(" · ").append(formatMillis(entry.cleanupMillis)).append(" to clean up")
+        }
+        if (basicCleanup) append(" · basic cleanup")
+    }
+}
+
+private fun formatMillis(millis: Long): String =
+    if (millis < 1000) "${millis}ms" else "%.1fs".format(millis / 1000.0)
 
 private fun formatTimestamp(epochMillis: Long): String =
     DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(epochMillis))

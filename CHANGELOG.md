@@ -2,6 +2,26 @@
 
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and semantic versioning.
 
+## [0.1.7] - 2026-08-27
+
+### Fixed
+
+- **Selecting a model that was not downloaded switched to it anyway**, leaving dictation
+  pointed at something that could not load. Selecting now asks whether to download it,
+  reports the size, and on confirmation selects *and* downloads -- so finishing leaves you on
+  the model you asked for. The explicit Download button stays.
+- The raw transcript is now always shown when a history row is expanded, including when it
+  matches the cleaned text (labelled "unchanged"). It was previously hidden whenever the two
+  were identical, which reads as a bug when you opened the row precisely to compare them.
+
+### Changed
+
+- **History durations are labelled and no longer ambiguous.** The single figure shown before
+  was the *audio length* -- how long you spoke -- but read as processing time. Rows now show
+  the cleanup style by name plus "Ns spoken", and, where known, how long transcription and
+  cleanup each took.
+- Transcripts record how long each stage took (Room migration v2 to v3). Rows written before
+  this show no timing rather than a fabricated zero, and exports carry the timings.
 ## [0.1.6] - 2026-08-27
 
 ### Changed

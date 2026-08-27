@@ -178,6 +178,33 @@ class TranscriptArchiveTest {
     }
 
     @Test
+    fun `stage timings round trip`() {
+        val original = entity().copy(transcribeMillis = 512, cleanupMillis = 1487)
+
+        val restored = TranscriptArchive.decode(
+            TranscriptArchive.encode(emptyList(), listOf(original), "0.1.7", 1L)
+        ).transcripts.single()
+
+        assertEquals(512L, restored.transcribeMillis)
+        assertEquals(1487L, restored.cleanupMillis)
+    }
+
+    @Test
+    fun `an archive written before timings existed still imports`() {
+        val json = """
+            {"format":"localscribe-export","version":1,"transcripts":[
+              {"createdAt":123,"raw":"a","cleaned":"a","language":"en","durationSeconds":1.0,
+               "mode":"STANDARD","cleanupBackend":"QWEN"}
+            ]}
+        """.trimIndent()
+
+        val restored = TranscriptArchive.decode(json).transcripts.single()
+
+        assertEquals("missing timings read as unknown, not as a failure", 0L, restored.transcribeMillis)
+        assertEquals(0L, restored.cleanupMillis)
+    }
+
+    @Test
     fun `vocabulary merges case-insensitively without duplicating`() {
         val toInsert = TranscriptArchive.vocabularyToInsert(
             incoming = listOf("Kallbrig", "kallbrig", "  Dana  ", "", "New"),

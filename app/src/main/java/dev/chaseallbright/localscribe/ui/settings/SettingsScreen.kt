@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -295,16 +296,51 @@ private fun ModelRow(
     val state = downloadStates[spec.id]
         ?: if (file.isFile) ModelDownloadState.Downloaded else ModelDownloadState.Absent
 
+    var confirmDownload by remember { mutableStateOf(false) }
+
+    // Selecting a model that is not on disk used to switch to it silently, leaving dictation
+    // pointed at something that cannot load. Selecting is now a request to use it, which for
+    // an absent model means downloading it first.
+    val requestSelect = {
+        if (state is ModelDownloadState.Downloaded) onSelect() else confirmDownload = true
+    }
+
+    if (confirmDownload) {
+        val sizeMb = spec.approxSizeBytes / (1024 * 1024)
+        AlertDialog(
+            onDismissRequest = { confirmDownload = false },
+            title = { Text("Download ${spec.displayName}?") },
+            text = {
+                Text(
+                    "This model is not on your device yet. Downloading is about ${sizeMb}MB and " +
+                        "only happens once. It will be selected and used as soon as it finishes."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDownload = false
+                    // Select first: the download completing should leave the user on the model
+                    // they asked for, not silently back on the old one.
+                    onSelect()
+                    ModelDownloadManager.download(spec, file)
+                }) { Text("Download and use") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDownload = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .selectable(selected = selected, onClick = onSelect)
+                .selectable(selected = selected, onClick = requestSelect)
                 .padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            RadioButton(selected = selected, onClick = onSelect)
+            RadioButton(selected = selected, onClick = requestSelect)
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = spec.displayName, style = MaterialTheme.typography.bodyLarge)
                 Text(

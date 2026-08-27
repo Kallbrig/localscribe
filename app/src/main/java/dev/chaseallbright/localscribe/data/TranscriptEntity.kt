@@ -17,7 +17,12 @@ data class TranscriptEntity(
     val durationSeconds: Float,
     val mode: String,
     @ColumnInfo(defaultValue = "UNKNOWN")
-    val cleanupBackend: String = CleanupBackend.UNKNOWN.name
+    val cleanupBackend: String = CleanupBackend.UNKNOWN.name,
+    /** Zero on rows written before timings were kept; the UI omits it rather than showing 0ms. */
+    @ColumnInfo(defaultValue = "0")
+    val transcribeMillis: Long = 0,
+    @ColumnInfo(defaultValue = "0")
+    val cleanupMillis: Long = 0
 )
 
 fun Transcript.toEntity(createdAtEpochMillis: Long = System.currentTimeMillis()): TranscriptEntity =
@@ -28,7 +33,9 @@ fun Transcript.toEntity(createdAtEpochMillis: Long = System.currentTimeMillis())
         language = language,
         durationSeconds = durationSeconds,
         mode = mode.name,
-        cleanupBackend = backend.name
+        cleanupBackend = backend.name,
+        transcribeMillis = transcribeMillis,
+        cleanupMillis = cleanupMillis
     )
 
 fun TranscriptEntity.toDomain(): Transcript =
@@ -39,5 +46,7 @@ fun TranscriptEntity.toDomain(): Transcript =
         durationSeconds = durationSeconds,
         mode = CleanupMode.valueOf(mode),
         backend = runCatching { CleanupBackend.valueOf(cleanupBackend) }
-            .getOrDefault(CleanupBackend.UNKNOWN)
+            .getOrDefault(CleanupBackend.UNKNOWN),
+        transcribeMillis = transcribeMillis,
+        cleanupMillis = cleanupMillis
     )
