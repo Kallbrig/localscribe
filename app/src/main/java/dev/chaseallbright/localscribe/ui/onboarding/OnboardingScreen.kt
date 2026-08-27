@@ -28,11 +28,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chaseallbright.localscribe.backup.BackupSettings
 import dev.chaseallbright.localscribe.models.ModelDownloadManager
 import dev.chaseallbright.localscribe.models.ModelDownloadState
 import dev.chaseallbright.localscribe.models.ModelManager
 import dev.chaseallbright.localscribe.permissions.PermissionsState
 import dev.chaseallbright.localscribe.settings.AppPreferences
+import dev.chaseallbright.localscribe.ui.common.BackupChoicesSection
 import dev.chaseallbright.localscribe.ui.common.PermissionRow
 
 @Composable
@@ -47,6 +49,8 @@ fun OnboardingScreen(modifier: Modifier = Modifier) {
     // on every recomposition -- download progress recomposes on each callback.
     var whisperTier by remember { mutableStateOf(preferences.whisperTier) }
     var cleanupTier by remember { mutableStateOf(preferences.cleanupTier) }
+    val backupSettings = remember(context) { BackupSettings(context) }
+    var backup by remember { mutableStateOf(backupSettings.choices) }
 
     fun refresh() {
         status = PermissionsState.current(context)
@@ -165,6 +169,19 @@ fun OnboardingScreen(modifier: Modifier = Modifier) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+
+        HorizontalDivider()
+
+        Text(text = "Backup", style = MaterialTheme.typography.titleMedium)
+        BackupChoicesSection(
+            choices = backup,
+            onChange = {
+                backup = it
+                backupSettings.choices = it
+            }
+        )
+
+        HorizontalDivider()
 
         // Deliberately gated on the speech model too. Saying "all set" while no model is on
         // disk is what sent first-run users into a failed dictation with nothing having

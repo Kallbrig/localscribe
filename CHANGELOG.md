@@ -2,6 +2,18 @@
 
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and semantic versioning.
 
+## [0.1.6] - 2026-08-27
+
+### Changed
+
+- **Every backup category now defaults to off**, master switch included. Backup happens only
+  because you asked for it. Anyone who already chose their settings in 0.1.4 or 0.1.5 keeps
+  them -- only people who never touched the screen get the new default.
+- Onboarding now surfaces the backup choice alongside permissions and models, so it is a
+  decision made rather than a default never seen. It does not gate "You're all set": off is
+  the safe state, so there is nothing to complete.
+- The backup controls are one shared component used by both onboarding and Settings, so the
+  two cannot drift apart.
 ## [0.1.5] - 2026-08-27
 
 ### Added

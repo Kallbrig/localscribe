@@ -6,21 +6,19 @@ package dev.chaseallbright.localscribe.backup
  *
  * This exists because `android:allowBackup="true"` with no rules is a silent opt-in: the
  * platform uploads app-private storage by default, which for this app meant every transcript
- * ever dictated went to Drive -- flatly contradicting what the app promises. Rather than just
- * switching backup off, the choice is surfaced and made per-category.
+ * ever dictated went to Drive -- flatly contradicting what the app promises.
+ *
+ * Every category therefore starts off. Backup only happens because the user asked for it,
+ * and onboarding puts the choice in front of them rather than leaving it buried in Settings.
  */
 data class BackupChoices(
     /** Master switch. When false nothing is backed up, whatever the other flags say. */
-    val enabled: Boolean = true,
+    val enabled: Boolean = false,
     /** Cleanup style, model tier, and these backup choices themselves. Not sensitive. */
-    val settings: Boolean = true,
+    val settings: Boolean = false,
     /** Custom vocabulary -- names and jargon. Mildly sensitive; useful to keep across devices. */
-    val vocabulary: Boolean = true,
-    /**
-     * Transcript history: the literal text of everything ever dictated. Off by default. This
-     * is the category that made the original silent backup a privacy problem, so it is opt-in
-     * rather than opt-out.
-     */
+    val vocabulary: Boolean = false,
+    /** Transcript history: the literal text of everything ever dictated. */
     val transcripts: Boolean = false
 )
 

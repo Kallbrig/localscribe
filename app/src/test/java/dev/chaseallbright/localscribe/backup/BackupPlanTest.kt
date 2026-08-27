@@ -8,10 +8,18 @@ import org.junit.Test
 class BackupPlanTest {
 
     @Test
-    fun `transcripts are off by default so an upgrade does not start uploading them`() {
+    fun `nothing at all is backed up by default`() {
         val defaults = BackupChoices()
 
+        assertFalse("the master switch starts off", defaults.enabled)
+        assertFalse(defaults.settings)
+        assertFalse(defaults.vocabulary)
         assertFalse(defaults.transcripts)
+        assertEquals(
+            "Android backs up by default; this app must not until asked",
+            emptySet<BackupItem>(),
+            BackupPlan.itemsFor(defaults)
+        )
         assertFalse(BackupPlan.sendsTranscripts(defaults))
     }
 
@@ -26,7 +34,7 @@ class BackupPlanTest {
     @Test
     fun `vocabulary without transcripts uses the generated export, not the database`() {
         val items = BackupPlan.itemsFor(
-            BackupChoices(vocabulary = true, transcripts = false, settings = false)
+            BackupChoices(enabled = true, vocabulary = true, transcripts = false, settings = false)
         )
 
         assertEquals(
@@ -39,7 +47,7 @@ class BackupPlanTest {
     @Test
     fun `transcripts pull in the whole database and make the separate export redundant`() {
         val items = BackupPlan.itemsFor(
-            BackupChoices(vocabulary = true, transcripts = true, settings = false)
+            BackupChoices(enabled = true, vocabulary = true, transcripts = true, settings = false)
         )
 
         assertEquals(setOf(BackupItem.DATABASE), items)
@@ -52,13 +60,13 @@ class BackupPlanTest {
     @Test
     fun `transcripts without vocabulary still take the database because they share a file`() {
         val items = BackupPlan.itemsFor(
-            BackupChoices(vocabulary = false, transcripts = true, settings = false)
+            BackupChoices(enabled = true, vocabulary = false, transcripts = true, settings = false)
         )
 
         assertEquals(setOf(BackupItem.DATABASE), items)
         assertTrue(
             "the user should be told vocabulary rides along, since it cannot be excluded",
-            BackupPlan.sendsTranscripts(BackupChoices(vocabulary = false, transcripts = true))
+            BackupPlan.sendsTranscripts(BackupChoices(enabled = true, vocabulary = false, transcripts = true))
         )
     }
 
@@ -66,7 +74,7 @@ class BackupPlanTest {
     fun `settings alone backs up nothing else`() {
         assertEquals(
             setOf(BackupItem.SETTINGS),
-            BackupPlan.itemsFor(BackupChoices(settings = true, vocabulary = false, transcripts = false))
+            BackupPlan.itemsFor(BackupChoices(enabled = true, settings = true, vocabulary = false, transcripts = false))
         )
     }
 
@@ -93,8 +101,8 @@ class BackupPlanTest {
 
     @Test
     fun `sendsTranscripts is true only when the database actually goes`() {
-        assertTrue(BackupPlan.sendsTranscripts(BackupChoices(transcripts = true)))
-        assertFalse(BackupPlan.sendsTranscripts(BackupChoices(transcripts = false, vocabulary = true)))
+        assertTrue(BackupPlan.sendsTranscripts(BackupChoices(enabled = true, transcripts = true)))
+        assertFalse(BackupPlan.sendsTranscripts(BackupChoices(enabled = true, transcripts = false, vocabulary = true)))
         assertFalse(BackupPlan.sendsTranscripts(BackupChoices(enabled = false, transcripts = true)))
     }
 }
