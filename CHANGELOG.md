@@ -2,6 +2,26 @@
 
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and semantic versioning.
 
+## [0.1.5] - 2026-08-27
+
+### Added
+
+- Export and import in Settings, for moving between devices with no cloud involved. Export
+  writes a single JSON file wherever you choose through the system file picker -- local
+  storage, an SD card, a folder you sync yourself -- so no storage permission is needed and
+  nothing passes through a backup transport.
+- Importing **merges** rather than replaces: nothing already on the device is discarded, and
+  re-importing the same file adds nothing. Transcripts are matched on timestamp plus cleaned
+  text rather than id, since ids are per-device autoincrement values. Vocabulary merges
+  case-insensitively.
+- JSON rather than CSV, because a transcript is arbitrary dictated text containing commas,
+  quotes and newlines -- all CSV escaping hazards. An export that round-trips only until
+  someone dictates a comma would be worse than none. Covered by tests for quotes, newlines,
+  tabs, unicode and emoji.
+- The format is versioned: a file from a newer build is refused with an explanation instead
+  of being mis-parsed, and a transcript naming a mode or backend this build does not know is
+  kept rather than dropped.
+- 15 tests covering the archive format and merge rules.
 ## [0.1.4] - 2026-08-27
 
 ### Fixed

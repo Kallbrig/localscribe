@@ -36,6 +36,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import android.widget.Toast
+import androidx.compose.runtime.rememberCoroutineScope
 import dev.chaseallbright.localscribe.backup.BackupChoices
 import dev.chaseallbright.localscribe.backup.BackupPlan
 import dev.chaseallbright.localscribe.backup.BackupSettings
@@ -50,6 +52,9 @@ import dev.chaseallbright.localscribe.models.WhisperModelTier
 import java.io.File
 import dev.chaseallbright.localscribe.permissions.PermissionsState
 import dev.chaseallbright.localscribe.settings.AppPreferences
+import dev.chaseallbright.localscribe.transfer.ArchiveIo
+import dev.chaseallbright.localscribe.transfer.TranscriptArchive
+import kotlinx.coroutines.launch
 import dev.chaseallbright.localscribe.ui.common.PermissionRow
 
 @Composable
@@ -60,6 +65,37 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     val modelManager = remember(context) { ModelManager(context) }
     val backupSettings = remember(context) { BackupSettings(context) }
     var backup by remember { mutableStateOf(backupSettings.choices) }
+    val scope = rememberCoroutineScope()
+
+    fun toast(message: String) = Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(TranscriptArchive.MIME_TYPE)
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            runCatching { ArchiveIo.export(context, uri) }
+                .onSuccess { toast("Exported $it transcript${if (it == 1) "" else "s"} and your vocabulary.") }
+                .onFailure { toast(it.message ?: "Export failed.") }
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            runCatching { ArchiveIo.import(context, uri) }
+                .onSuccess { result ->
+                    val skipped = if (result.skipped > 0) ", ${result.skipped} unreadable" else ""
+                    toast(
+                        "Imported ${result.transcriptsAdded} transcript(s) and " +
+                            "${result.wordsAdded} word(s)$skipped."
+                    )
+                }
+                .onFailure { toast(it.message ?: "Import failed.") }
+        }
+    }
 
     val downloadStates by ModelDownloadManager.states.collectAsStateWithLifecycle()
 
@@ -137,6 +173,28 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                         ModelSession.invalidate()
                     }
                 )
+            }
+        }
+
+        SettingsSection(title = "Export and import") {
+            Text(
+                text = "Move your transcripts and vocabulary between devices yourself, with no " +
+                    "cloud involved. Exports to a JSON file wherever you choose; importing merges " +
+                    "into what is already here rather than replacing it.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { exportLauncher.launch(ArchiveIo.suggestedFileName()) }) {
+                    Text("Export")
+                }
+                TextButton(
+                    onClick = {
+                        // Some file pickers do not offer .json under a strict MIME filter, so
+                        // accept any file and let the format check reject the wrong one.
+                        importLauncher.launch(arrayOf(TranscriptArchive.MIME_TYPE, "text/plain", "*/*"))
+                    }
+                ) { Text("Import") }
             }
         }
 
