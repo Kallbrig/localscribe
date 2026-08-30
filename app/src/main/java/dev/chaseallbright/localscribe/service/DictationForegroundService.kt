@@ -7,6 +7,9 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -15,6 +18,7 @@ import dev.chaseallbright.localscribe.DICTATION_NOTIFICATION_CHANNEL_ID
 import dev.chaseallbright.localscribe.R
 import android.util.Log
 import dev.chaseallbright.localscribe.audio.AudioRecorder
+import dev.chaseallbright.localscribe.audio.shouldStopRecordingForFocusChange
 import dev.chaseallbright.localscribe.data.LocalScribeDatabase
 import dev.chaseallbright.localscribe.data.toEntity
 import dev.chaseallbright.localscribe.dictation.DictationController
@@ -37,6 +41,15 @@ class DictationForegroundService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.Default + Job())
     private val audioRecorder = AudioRecorder()
     private var isRecording = false
+    private var audioFocusRequest: AudioFocusRequest? = null
+
+    // Runs on the main thread (the request is made without a Handler, so callbacks land on
+    // the thread that made the request -- onStartCommand is always called on the main thread).
+    private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        if (shouldStopRecordingForFocusChange(focusChange)) {
+            cancelRecording()
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -74,6 +87,7 @@ class DictationForegroundService : Service() {
         }
 
         startForegroundWithNotification(getString(R.string.dictation_notification_recording))
+        requestAudioFocus()
         audioRecorder.start()
         isRecording = true
         DictationController.setState(DictationUiState.Recording)
@@ -86,6 +100,7 @@ class DictationForegroundService : Service() {
         }
         isRecording = false
         val samples = audioRecorder.stop()
+        abandonAudioFocus()
         updateNotification(getString(R.string.dictation_notification_processing))
         DictationController.setState(DictationUiState.Processing)
 
@@ -141,9 +156,31 @@ class DictationForegroundService : Service() {
         if (isRecording) {
             audioRecorder.cancel()
             isRecording = false
+            abandonAudioFocus()
         }
         DictationController.setState(DictationUiState.Idle)
         stopSelf()
+    }
+
+    private fun requestAudioFocus() {
+        val audioManager = getSystemService(AudioManager::class.java) ?: return
+        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            .setOnAudioFocusChangeListener(audioFocusListener)
+            .build()
+        audioFocusRequest = request
+        audioManager.requestAudioFocus(request)
+    }
+
+    private fun abandonAudioFocus() {
+        val request = audioFocusRequest ?: return
+        audioFocusRequest = null
+        getSystemService(AudioManager::class.java)?.abandonAudioFocusRequest(request)
     }
 
     private fun startForegroundWithNotification(text: String) {
@@ -174,6 +211,7 @@ class DictationForegroundService : Service() {
         serviceScope.cancel()
         if (isRecording) {
             audioRecorder.cancel()
+            abandonAudioFocus()
         }
     }
 
