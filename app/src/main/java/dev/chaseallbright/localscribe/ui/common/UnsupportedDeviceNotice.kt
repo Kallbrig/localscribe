@@ -18,7 +18,8 @@ import dev.chaseallbright.localscribe.platform.CpuSupport
  * modules are compiled for. Shared between the two surfaces so their wording cannot drift --
  * the same reason [BackupChoicesSection] is shared.
  *
- * Renders nothing on every device that runs the app today.
+ * Does not appear on any device that can run the app today: both call sites render it only
+ * when the verdict is [CpuSupport.Unsupported].
  */
 @Composable
 fun UnsupportedDeviceNotice(

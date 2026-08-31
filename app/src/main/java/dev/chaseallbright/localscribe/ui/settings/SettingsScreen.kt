@@ -234,8 +234,10 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             )
         }
 
-        // See OnboardingScreen: nothing in these two sections can be acted on when the CPU
-        // cannot run the engine, so they are hidden rather than shown as dead controls.
+        // See OnboardingScreen. These two are hidden, while Cleanup style and Recording limit
+        // above are left alone, because the line is cost rather than usefulness: a preference
+        // that configures a dictation which can never happen is merely inert, whereas offering
+        // a gigabyte download that can never pay off actively wastes the user's data and disk.
         if (cpuSupport.isSupported) {
             SettingsSection(title = "Speech model") {
                 WhisperModelTier.entries.forEach { tier ->
@@ -271,6 +273,37 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                             ModelSession.invalidate()
                         }
                     )
+                }
+            }
+        } else {
+            // Downloading a model never touches native code, so a device that can never run one
+            // may still be holding up to ~1.6GB of them from an earlier build -- and hiding the
+            // sections above would otherwise take the app's only Delete button with them. The
+            // files are app-private, so nothing outside LocalScribe can reclaim the space, and
+            // Android's "Clear storage" would take the transcript history too.
+            val downloaded: List<Pair<ModelSpec, File>> =
+                (WhisperModelTier.entries.map { tier ->
+                    (tier as ModelSpec) to modelManager.speechModelFile(tier)
+                } + CleanupModelTier.entries.map { tier ->
+                    (tier as ModelSpec) to modelManager.cleanupModelFile(tier)
+                }).filter { (_, file) -> file.isFile }
+
+            if (downloaded.isNotEmpty()) {
+                SettingsSection(title = "Downloaded models") {
+                    val totalMb = downloaded.sumOf { (_, file) -> file.length() } / (1024 * 1024)
+                    Text(
+                        text = "${totalMb}MB was downloaded before LocalScribe could tell this " +
+                            "processor was unable to run it. It can only be removed.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    TextButton(
+                        onClick = {
+                            downloaded.forEach { (spec, file) ->
+                                ModelDownloadManager.delete(spec, file)
+                            }
+                        }
+                    ) { Text("Delete downloaded models") }
                 }
             }
         }

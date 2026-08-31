@@ -136,14 +136,11 @@ fun OnboardingScreen(modifier: Modifier = Modifier) {
             )
         }
 
-        // Hoisted above the visibility check below: whisperState is read further down by the
-        // "You're all set" gate, so it must not live inside a conditional block.
+        // whisperState is read further down by the "You're all set" gate, so it and the file it
+        // derives from must not live inside the conditional block below.
         val whisperFile = modelManager.speechModelFile(whisperTier)
         val whisperState = downloadStates[whisperTier.id]
             ?: if (whisperFile.isFile) ModelDownloadState.Downloaded else ModelDownloadState.Absent
-        val cleanupFile = modelManager.cleanupModelFile(cleanupTier)
-        val cleanupState = downloadStates[cleanupTier.id]
-            ?: if (cleanupFile.isFile) ModelDownloadState.Downloaded else ModelDownloadState.Absent
 
         // A model exists only to serve a dictation, so on an unsupported CPU every control in
         // this section is dead. Hidden rather than disabled: the notice above already explains
@@ -164,6 +161,10 @@ fun OnboardingScreen(modifier: Modifier = Modifier) {
                 state = whisperState,
                 required = true
             )
+
+            val cleanupFile = modelManager.cleanupModelFile(cleanupTier)
+            val cleanupState = downloadStates[cleanupTier.id]
+                ?: if (cleanupFile.isFile) ModelDownloadState.Downloaded else ModelDownloadState.Absent
 
             ModelSetupRow(
                 spec = cleanupTier,
