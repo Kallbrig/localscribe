@@ -14,6 +14,18 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and s
 
 ### Fixed
 
+- **LocalScribe no longer crashes on sight on processors older than about 2018.** The speech
+  engine is built for ARMv8.2, and on an older 64-bit ARM chip it did not run slowly -- it hit an
+  instruction the processor does not have, and the app died instantly, with no message, every
+  time. Android installs by OS version rather than processor, so nothing had stopped those
+  devices getting it. LocalScribe now checks the processor before it loads the engine and says
+  plainly that it cannot run, while leaving history, vocabulary and export working so you can
+  still get your transcripts off the device. It does not make dictation work on that hardware --
+  it makes the failure legible.
+- **A refused dictation now tells you why.** Tapping the mic bubble when something was wrong --
+  no microphone permission, no speech model downloaded, and now an unsupported processor --
+  produced no visible response at all: the reason was recorded internally and never shown. It is
+  now a message on screen. The bubble also no longer stays stuck over every app afterwards.
 - **A recording left running could exhaust memory and kill the app**, losing the dictation with
   no message. Audio was buffered with no limit at all, and peak memory was roughly five times
   the recorded audio, so around 20 to 40 minutes it ran out. The realistic case was never a long

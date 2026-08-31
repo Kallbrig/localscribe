@@ -28,6 +28,16 @@ itself.
 - **`:llama-jni`** -- same pattern for `llama.cpp`, exposing `LlamaBridge`
   (load model/generate/free) for short cleanup completions.
 
+Both native modules compile with `-march=armv8.2-a+fp16+dotprod`, so they cannot run on a
+pre-2018 arm64 CPU -- the process dies with SIGILL rather than degrading. `minSdk` cannot express
+that and Android has no manifest mechanism for it, so `platform/CpuSupport` decides from
+`/proc/cpuinfo` and `platform/DeviceCpu` caches the verdict. `System.loadLibrary` sits in each
+bridge's `companion object` initializer and `dlopen` runs `.init_array`, so the fault can occur at
+load time rather than at first inference: every gate therefore runs **before either bridge class
+is touched at all** -- in `DictationForegroundService.startRecording()`, `ModelSession.prewarm()`
+and `ModelSession.withModels()`. The check fails open on every uncertain input, because a false
+negative would disable dictation on hardware that works.
+
 ## Data flow
 
 1. `DictationAccessibilityService` tracks the focused editable node across every app and
