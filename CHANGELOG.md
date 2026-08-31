@@ -6,6 +6,17 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and s
 
 ### Added
 
+- **A Feedback section in Settings.** Write what happened, and LocalScribe opens your browser at
+  a pre-filled GitHub issue for you to review and submit. It attaches your app and Android
+  version, device model, processor details, which models you have, and the codes of any recent
+  failures -- and it shows you that text in full before anything happens, so there are no
+  surprises. **No transcript text, vocabulary, or audio is ever attached**; the only free text is
+  what you type yourself. There is no account or database behind this: LocalScribe sends nothing,
+  your browser opens the page, and you press Submit. If you have no GitHub account, or no
+  browser, "Copy report" puts the same text on your clipboard.
+- **A "Report this device" button** on the unsupported-processor notice, so people whose devices
+  cannot run LocalScribe have a way to say so. Whether it is worth building a second engine for
+  older processors depends entirely on hearing from them.
 - **Recordings now stop on their own at a limit you choose**, defaulting to 2 minutes, with
   notches at 1, 2, 3, 5 and 10 minutes in Settings. Choosing 5 minutes or more asks first, and
   says what it costs: a longer wait to process, and cleanup that only sees about 2.5 minutes of
@@ -14,6 +25,13 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and s
 
 ### Fixed
 
+- **Error messages are now written for people.** When something went wrong, LocalScribe showed
+  whatever text the underlying error happened to carry -- you could be told
+  `database or disk is full (code 13 SQLITE_FULL[13])` after a dictation, or
+  `Unable to resolve host "huggingface.co"` under a model download. Messages are now either copy
+  written for you, or a plain sentence with a short code you can quote in a bug report. A failed
+  download that really is a connection problem still says so, rather than hiding that behind a
+  code.
 - **LocalScribe no longer crashes on sight on processors older than about 2018.** The speech
   engine is built for ARMv8.2, and on an older 64-bit ARM chip it did not run slowly -- it hit an
   instruction the processor does not have, and the app died instantly, with no message, every
