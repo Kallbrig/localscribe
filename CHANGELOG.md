@@ -4,6 +4,27 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and s
 
 ## [Unreleased]
 
+### Added
+
+- **Recordings now stop on their own at a limit you choose**, defaulting to 2 minutes, with
+  notches at 1, 2, 3, 5 and 10 minutes in Settings. Choosing 5 minutes or more asks first, and
+  says what it costs: a longer wait to process, and cleanup that only sees about 2.5 minutes of
+  speech at once. Hitting the limit finishes the dictation and inserts it -- nothing you said is
+  thrown away -- and the notification says the limit is why it stopped.
+
+### Fixed
+
+- **A recording left running could exhaust memory and kill the app**, losing the dictation with
+  no message. Audio was buffered with no limit at all, and peak memory was roughly five times
+  the recorded audio, so around 20 to 40 minutes it ran out. The realistic case was never a long
+  dictation -- it was a recording you forgot to stop. Memory use is now capped by the recording
+  limit, and the same audio costs about 40% less than it did.
+- **Audio was kept in memory longer than it needed to be.** It was released when a recording was
+  cancelled but not when one finished normally, so it stayed resident through transcription and
+  cleanup and until the next dictation began. It is now released as soon as it is converted.
+- Dictation now pauses other media playback while recording, and stops recording if a call or
+  another app takes over the microphone.
+
 ### Changed
 
 - Releases now have two channels, decided by the tag alone. `v0.2.0-beta.3` and `v0.2.0-rc.1`

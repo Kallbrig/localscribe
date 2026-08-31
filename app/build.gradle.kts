@@ -47,8 +47,8 @@ android {
         applicationId = "dev.chaseallbright.localscribe"
         minSdk = 28
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.2.0-beta.1"
+        versionCode = 10
+        versionName = "0.2.0-beta.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
