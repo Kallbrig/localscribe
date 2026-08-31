@@ -430,8 +430,9 @@ Highest value first.
   build a baseline arm64 library alongside the armv8.2 one and pick at load time. Sized **M**, and
   the blocker is not the code — it is that **the baseline path cannot be verified without a
   pre-2018 device**, so it would ship untested. It also roughly doubles an already ~8-minute
-  native build and the APK's native payload. Worth doing only if someone reports owning such a
-  device, or one can be borrowed.
+  native build and the APK's native payload. There is now a channel for finding out whether
+  anyone owns such a device: the **Report this device** button files an issue labelled
+  `device-report`, titled `Unsupported device: <model>`. Check that label before deciding.
 - **No instrumented tests on the riskiest code.** The three accessibility insertion tiers, focus
   tracking, and the JNI boundary have none. Nor do the new Compose surfaces: history interactions,
   delete confirmations, clipboard/share intents, the backup agent's `onFullBackup`. The pure logic
