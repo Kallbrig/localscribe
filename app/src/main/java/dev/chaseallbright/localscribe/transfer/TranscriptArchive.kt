@@ -30,7 +30,10 @@ object TranscriptArchive {
         val skipped: Int = 0
     )
 
-    /** Its messages are written for users, so they survive [FailureCopy]'s default of hiding. */
+    /**
+     * Its messages are written for users, so they survive
+     * [dev.chaseallbright.localscribe.domain.FailureCopy]'s default of hiding an exception's text.
+     */
     class UnsupportedArchive(message: String) :
         IllegalArgumentException(message), UserFacingMessage
 

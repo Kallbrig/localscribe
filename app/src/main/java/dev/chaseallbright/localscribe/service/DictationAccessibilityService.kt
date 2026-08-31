@@ -60,9 +60,10 @@ class DictationAccessibilityService : AccessibilityService() {
             // and nothing ever read the message. The user tapped the bubble and nothing
             // happened. Toasting it is how this service already reports the cleanup fallback.
             //
-            // This also surfaces the pipeline's own failures, whose message is a raw exception
-            // string rather than copy written for a user. That is still an improvement on
-            // showing nothing, but it is why the text is not always polished.
+            // Every message reaching DictationUiState.Error is vetted by
+            // dev.chaseallbright.localscribe.domain.FailureCopy: either copy deliberately
+            // written for a user, or generic copy plus a short code. A raw exception string
+            // cannot arrive here, so this can be shown as-is.
             //
             // drop(1) skips the current value on subscribe, so reconnecting the service does
             // not replay a stale error the user has already been shown.
