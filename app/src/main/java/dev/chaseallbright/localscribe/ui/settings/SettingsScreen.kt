@@ -277,7 +277,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             }
         } else {
             // Downloading a model never touches native code, so a device that can never run one
-            // may still be holding up to ~1.6GB of them from an earlier build -- and hiding the
+            // may still be holding up to ~2.3GB of them from an earlier build -- and hiding the
             // sections above would otherwise take the app's only Delete button with them. The
             // files are app-private, so nothing outside LocalScribe can reclaim the space, and
             // Android's "Clear storage" would take the transcript history too.

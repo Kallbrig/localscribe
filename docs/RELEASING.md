@@ -19,9 +19,9 @@ Work accumulates as betas under the version it is heading for, then ships once u
 that means something:
 
 ```
-v0.2.0-beta.1   backup opt-in
-v0.2.0-beta.2   export and import
-v0.2.0-beta.3   model download prompt
+v0.2.0-beta.1   backup opt-in, export and import
+v0.2.0-beta.2   recording limit
+v0.2.0-beta.3   CPU support gate
 v0.2.0          "The Settings Update"
 ```
 

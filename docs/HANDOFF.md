@@ -47,8 +47,9 @@ launch. Android has no `<uses-feature>` for an ARM extension, and distribution i
 GitHub/Obtainium rather than Play, so **runtime is the only place this could be caught**.
 
 - `CpuSupport.evaluate(primaryAbi, cpuinfo)` is pure — it takes the ABI and the *text* of
-  `/proc/cpuinfo` rather than reading either, so all fourteen of its branches are unit-tested.
+  `/proc/cpuinfo` rather than reading either, so every branch of it is unit-tested.
   `DeviceCpu` holds everything untestable: a static field read, a `/proc` read, and a cache.
+  Fourteen tests cover its five decision rules, including every fail-open path.
 - **The gates run before `System.loadLibrary`, not inside the bridges.** That call sits in each
   bridge's `companion object` initializer, and `dlopen` runs `.init_array`, so the fault may
   happen at load time rather than at first inference. Waiting until the bridge is touched would
@@ -69,8 +70,8 @@ GitHub/Obtainium rather than Play, so **runtime is the only place this could be 
   and none was attached at all. The unsupported path is exercised only by unit tests against
   captured `Features` strings. What protects working devices is the fail-open design, not testing.
 
-Two adjacent defects the work surfaced, both pre-existing and both now fixed — without them the
-gate would have replaced a loud crash with a silent one:
+Three further defects, the first two pre-existing and surfaced by this work, the third created by
+it. Without the first two the gate would have replaced a loud crash with a silent one:
 
 - **`DictationUiState.Error` was never rendered.** Three refusal paths (unsupported CPU, missing
   permission, missing speech model) set an Error carrying the reason, but `OverlayContent` drew
@@ -84,9 +85,15 @@ gate would have replaced a loud crash with a silent one:
   returns the state to `Idle` once the message is delivered.
 - Settings hides the model sections on an unsupported device, which removed the app's only
   `ModelDownloadManager.delete` call site. Downloading a model never touches native code, so such
-  a device can be holding up to ~1.6 GB from an earlier build, in app-private files no file
+  a device can be holding up to ~2.3 GB from an earlier build, in app-private files no file
   manager reaches — while the notice tells the user to keep the app for history and export. A
   delete-only section covers that.
+
+**The overlay bubble is deliberately left alone on an unsupported device.** It still appears in
+every text field, and every tap produces the same toast. Suppressing it was considered and
+rejected: a bubble that silently never appears is indistinguishable from a broken accessibility
+service, and the toast is the thing that makes the failure legible. Raised in final review as a
+possible omission, so it is recorded here as a decision.
 
 ### The capture buffer is bounded
 
@@ -338,7 +345,7 @@ code — worth knowing, because the plan was followed faithfully and would have 
   stated invariant is fail-open. Now any whitespace.
 - **Only the first refusal ever toasted.** Caught by tracing `StateFlow` conflation against the
   overlay's `FLAG_NOT_FOCUSABLE` window — two facts in different files that only bite together.
-- **Hiding the Settings model sections stranded up to ~1.6 GB** by removing the app's only delete
+- **Hiding the Settings model sections stranded up to ~2.3 GB** by removing the app's only delete
   control, on precisely the devices being told to keep the app installed.
 
 A fifth was caught during *planning*, before any code: wrapping the onboarding Models section in a
@@ -459,7 +466,7 @@ Highest value first.
 
 ## Concerns
 
-- **ARMv8.2 hardware still cannot run LocalScribe** — it is now told so instead of crashing. The
+- **Pre-ARMv8.2 hardware still cannot run LocalScribe** — it is now told so instead of crashing. The
   gate is a detection, not a port: dictation genuinely does not work on those devices, and the
   only fix that would change that is two library variants (see Left undone). Note also that the
   gate's own unsupported path has never executed on real hardware.
