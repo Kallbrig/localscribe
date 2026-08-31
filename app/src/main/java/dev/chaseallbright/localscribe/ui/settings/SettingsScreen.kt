@@ -31,6 +31,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -187,7 +190,8 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             Text(
                 text = "Recording stops on its own at this length. Longer recordings use more " +
                     "memory and take longer to process.",
-                style = MaterialTheme.typography.bodySmall
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Slider(
                 value = limitSliderIndex,
@@ -205,7 +209,15 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                 },
                 valueRange = 0f..(RecordingLimit.entries.size - 1).toFloat(),
                 steps = RecordingLimit.entries.size - 2,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    // The caption below is a separate node, so without this a screen reader
+                    // announces the raw slider index instead of the duration it selects.
+                    .semantics {
+                        contentDescription = "Recording limit"
+                        stateDescription =
+                            RecordingLimit.entries[limitSliderIndex.roundToInt()].displayName
+                    }
             )
             Text(
                 text = "Stops automatically after " +
