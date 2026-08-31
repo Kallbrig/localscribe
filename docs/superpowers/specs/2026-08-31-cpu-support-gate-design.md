@@ -81,9 +81,20 @@ Evaluated in order:
 |---|---|---|---|
 | 1 | `primaryAbi` is not `arm64-v8a` | `Supported` | `-march` is applied only under `ANDROID_ABI STREQUAL "arm64-v8a"`. The x86_64 library is baseline and always safe. **Without this rule the x86_64 emulator is declared unsupported**, because its `/proc/cpuinfo` has `flags`, not `Features`, and none of the ARM tokens. |
 | 2 | `cpuinfo` is null or blank | `Supported` | Fail open: unreadable `/proc` is not evidence of absence. |
-| 3 | No line whose key is `Features` | `Supported` | Fail open: cannot prove absence. |
-| 4 | Required tokens present on every `Features` line | `Supported` | |
+| 3 | No usable `Features` line | `Supported` | Fail open: cannot prove absence. |
+| 4 | Required tokens present on every usable `Features` line | `Supported` | |
 | 5 | Otherwise | `Unsupported(missing)` | The only branch that disables anything. |
+
+A `Features` line carrying **no tokens at all** is not usable, and counts toward rule 3 rather than
+rule 5. `fp` and `asimd` are architecturally mandatory on every ARMv8-A core and are always present
+in `elf_hwcap`, so a real arm64 kernel never emits an empty one. An empty list therefore describes
+redacted or synthesised procfs — a hardened ROM, a container, a sandbox masking `/proc` — not an old
+CPU, and rule 3 is the branch that fits it.
+
+This was originally specified the other way, on the reasoning that a present-but-empty list is a
+real answer from the kernel where a missing line is not. That reasoning is wrong for arm64, and
+code review caught it: as first written it would have permanently disabled dictation on working
+hardware whose `/proc` happened to be masked — precisely the failure decision 4 exists to prevent.
 
 **Required tokens:** `asimdhp` and `asimddp`.
 
@@ -178,6 +189,9 @@ Unit tests target `evaluate`, which is where all the behaviour is:
 - `fp16` present, `dotprod` absent → `Unsupported`, listing only `asimddp`.
 - x86_64 emulator: `flags`-style cpuinfo with a non-arm64 ABI → `Supported` (rule 1).
 - arm64 ABI with null, blank, and `Features`-less cpuinfo → `Supported` (rules 2 and 3).
+- A `Features` line that is empty, or contains only whitespace → `Supported` (rule 3).
+- `fp16` and `dotprod` present but `atomics` absent → `Supported`, locking in the deliberate
+  decision not to check LSE.
 - Multi-core input where one core's `Features` line lacks a token → `Unsupported` (intersection).
 - Substring hazards: a line containing `asimdrdm` but not `asimddp` → `Unsupported`.
 
