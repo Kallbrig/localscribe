@@ -21,6 +21,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
 /**
@@ -49,6 +50,25 @@ class DictationAccessibilityService : AccessibilityService() {
                 // "Copied -- paste manually" toast when both insertion tiers failed.
                 if (inserted) {
                     maybeToastCleanupFallback(transcript)
+                }
+            }
+        }
+
+        serviceScope.launch {
+            // A refusal -- unsupported CPU, missing permission, missing speech model -- sets an
+            // Error state carrying the reason, but OverlayContent draws Error exactly like Idle
+            // and nothing ever read the message. The user tapped the bubble and nothing
+            // happened. Toasting it is how this service already reports the cleanup fallback.
+            //
+            // drop(1) skips the current value on subscribe, so reconnecting the service does
+            // not replay a stale error the user has already been shown.
+            DictationController.state.drop(1).collect { state ->
+                if (state is DictationUiState.Error) {
+                    Toast.makeText(
+                        this@DictationAccessibilityService,
+                        state.message,
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             }
         }
@@ -111,7 +131,13 @@ class DictationAccessibilityService : AccessibilityService() {
         if (source.isEditable) {
             ModelSession.prewarm(this)
             focusedEditableNode = source
-            if (DictationController.state.value == DictationUiState.Hidden) {
+            // Error is treated as showable-and-clearable alongside Hidden/Idle: it is a
+            // transient refusal, not a mode. Requiring an exact match left the bubble stuck on
+            // screen after any refusal, because no later transition could match Error. Clearing
+            // it here is also what lets a second refusal toast again -- StateFlow conflates
+            // equal values, so Error -> Error would be silent.
+            val current = DictationController.state.value
+            if (current == DictationUiState.Hidden || current is DictationUiState.Error) {
                 DictationController.setState(DictationUiState.Idle)
             }
         } else {
@@ -122,7 +148,8 @@ class DictationAccessibilityService : AccessibilityService() {
     private fun clearFocus() {
         ModelSession.onFocusLost()
         focusedEditableNode = null
-        if (DictationController.state.value == DictationUiState.Idle) {
+        val current = DictationController.state.value
+        if (current == DictationUiState.Idle || current is DictationUiState.Error) {
             DictationController.setState(DictationUiState.Hidden)
         }
     }

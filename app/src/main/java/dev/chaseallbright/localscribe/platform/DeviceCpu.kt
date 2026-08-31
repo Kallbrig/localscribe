@@ -25,8 +25,11 @@ object DeviceCpu {
         val cpuinfo = runCatching { File("/proc/cpuinfo").readText() }.getOrNull()
         CpuSupport.evaluate(abi, cpuinfo).also { result ->
             when (result) {
+                // Deliberately worded as the verdict, not the evidence: this branch is also
+                // reached by every fail-open path (non-arm64 ABI, unreadable or unparseable
+                // cpuinfo), where the features were never actually confirmed.
                 is CpuSupport.Supported ->
-                    Log.i(TAG, "CPU ($abi) has the required ARMv8.2 features")
+                    Log.i(TAG, "CPU ($abi) cleared the ARMv8.2 check")
                 is CpuSupport.Unsupported ->
                     Log.w(
                         TAG,
