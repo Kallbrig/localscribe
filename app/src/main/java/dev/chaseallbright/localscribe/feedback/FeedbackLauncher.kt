@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.widget.Toast
 
 /**
@@ -18,8 +19,27 @@ import android.widget.Toast
  */
 object FeedbackLauncher {
 
+    const val DEFAULT_COPY_MESSAGE = "Report copied"
+
     const val LABEL_FEEDBACK = "feedback"
     const val LABEL_DEVICE_REPORT = "device-report"
+
+    /**
+     * Reports an unsupported CPU. Shared by onboarding and Settings so the two cannot drift --
+     * the same reason `BackupChoicesSection` is a shared component rather than two copies.
+     *
+     * No free-text step: here the diagnostics *are* the report, and asking someone to compose a
+     * paragraph first is exactly the friction that would stop the reports this exists to collect.
+     */
+    fun reportDevice(context: Context) {
+        val facts = DeviceFactsCollector.collect(context)
+        openIssue(
+            context = context,
+            title = "Unsupported device: ${facts.manufacturer} ${facts.model}",
+            body = FeedbackReport.body(facts, ""),
+            label = LABEL_DEVICE_REPORT
+        )
+    }
 
     fun openIssue(context: Context, title: String, body: String, label: String) {
         val url = FeedbackReport.issueUrl(title, body, label)
@@ -32,7 +52,7 @@ object FeedbackLauncher {
                 Intent(Intent.ACTION_VIEW, Uri.parse(url))
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
-        } catch (e: ActivityNotFoundException) {
+        } catch (_: ActivityNotFoundException) {
             copyReport(context, body, "No browser found — report copied instead")
         }
     }
@@ -40,10 +60,17 @@ object FeedbackLauncher {
     fun copyReport(
         context: Context,
         body: String,
-        message: String = "Report copied"
+        message: String = DEFAULT_COPY_MESSAGE
     ) {
         val clipboard = context.getSystemService(ClipboardManager::class.java)
         clipboard?.setPrimaryClip(ClipData.newPlainText("LocalScribe feedback", body))
-        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        // Android 13+ shows its own copy confirmation, so the default message would be a second
+        // notice saying the same thing. The two override messages still need saying: they
+        // explain why the browser did not open, which the system notice cannot.
+        val systemConfirms = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            message == DEFAULT_COPY_MESSAGE
+        if (!systemConfirms) {
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
     }
 }

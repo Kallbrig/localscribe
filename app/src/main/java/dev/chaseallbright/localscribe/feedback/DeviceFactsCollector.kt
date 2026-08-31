@@ -35,7 +35,11 @@ object DeviceFactsCollector {
                 is CpuSupport.Unsupported ->
                     "unsupported, missing ${support.missingFeatures.joinToString(", ")}"
             },
-            totalRamGb = models.totalRamGb(),
+            // Rounded here rather than at render time: unrounded this reads
+            // "11.406238555908203 GB" in every report. One decimal is all the precision a
+            // RAM figure carries. Kotlin's Double.toString is locale-independent, so this
+            // avoids a comma decimal separator that String.format would introduce.
+            totalRamGb = kotlin.math.round(models.totalRamGb() * 10) / 10.0,
             whisperTier = whisperTier.id,
             whisperDownloaded = models.isWhisperModelReady(whisperTier),
             cleanupTier = cleanupTier.id,

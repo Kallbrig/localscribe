@@ -97,15 +97,7 @@ fun OnboardingScreen(modifier: Modifier = Modifier) {
         if (cpuSupport is CpuSupport.Unsupported) {
             UnsupportedDeviceNotice(
                 unsupported = cpuSupport,
-                onReport = {
-                    val facts = DeviceFactsCollector.collect(context)
-                    FeedbackLauncher.openIssue(
-                        context = context,
-                        title = "Unsupported device: ${facts.manufacturer} ${facts.model}",
-                        body = FeedbackReport.body(facts, ""),
-                        label = FeedbackLauncher.LABEL_DEVICE_REPORT
-                    )
-                }
+                onReport = { FeedbackLauncher.reportDevice(context) }
             )
         }
 

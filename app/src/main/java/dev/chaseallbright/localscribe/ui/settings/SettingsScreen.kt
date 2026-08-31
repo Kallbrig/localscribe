@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
@@ -21,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -193,15 +195,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         if (cpuSupport is CpuSupport.Unsupported) {
             UnsupportedDeviceNotice(
                 unsupported = cpuSupport,
-                onReport = {
-                    val facts = DeviceFactsCollector.collect(context)
-                    FeedbackLauncher.openIssue(
-                        context = context,
-                        title = "Unsupported device: ${facts.manufacturer} ${facts.model}",
-                        body = FeedbackReport.body(facts, ""),
-                        label = FeedbackLauncher.LABEL_DEVICE_REPORT
-                    )
-                }
+                onReport = { FeedbackLauncher.reportDevice(context) }
             )
         }
 
@@ -367,11 +361,15 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
 
         SettingsSection(title = "Feedback") {
             var feedbackText by remember { mutableStateOf("") }
-            // Collected once, not per recomposition: this section recomposes on every keystroke
-            // in the box below, and collecting does file stats plus a totalRamGb() binder call.
-            // The cost of holding it is a failure recorded while Settings is already open not
-            // appearing until the screen is revisited, which is a fair trade.
-            val facts = remember(context) { DeviceFactsCollector.collect(context) }
+            // Not collected per recomposition: this section recomposes on every keystroke in
+            // the box below, and collecting does file stats plus a totalRamGb() binder call.
+            // But it IS keyed on every setting the report quotes, because all four are edited
+            // in sections directly above this one -- caching on context alone would have shown
+            // whatever they were when Settings opened. What remains stale is a failure recorded
+            // while this screen is already open, which is a fair trade.
+            val facts = remember(context, whisperTier, cleanupTier, cleanupMode, recordingLimit) {
+                DeviceFactsCollector.collect(context)
+            }
             val reportBody = FeedbackReport.body(facts, feedbackText)
 
             Text(
@@ -394,15 +392,24 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Text(
-                text = reportBody,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 220.dp)
-                    .verticalScroll(rememberScrollState())
-            )
+            // Bordered so it reads as a distinct pane. Without a container the user cannot tell
+            // this region scrolls independently, and dragging it feels like the page is stuck.
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Text(
+                    text = reportBody,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .heightIn(max = 220.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(12.dp)
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(
                     onClick = {

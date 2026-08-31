@@ -51,19 +51,56 @@ object FeedbackReport {
      */
     const val MAX_URL_LENGTH = 6000
 
+    /**
+     * Room left for everything in the URL that is not the body: the base URL, the encoded
+     * title, and the label. Generous on purpose -- being wrong here costs a clipboard fallback,
+     * whereas being tight costs a truncated issue.
+     */
+    private const val URL_OVERHEAD_RESERVE = 300
+
     fun body(facts: DeviceFacts, userText: String): String {
+        val diagnostics = diagnostics(facts)
+        // Built separately and concatenated, NOT interpolated into one raw string. Kotlin
+        // interpolates before trimIndent() runs, so a user's second line -- at indent zero --
+        // would drag the common indent to zero and leave every template line with its twelve
+        // leading spaces. Four spaces is an indented code block in GitHub markdown, so the
+        // whole table used to render as literal text the moment anyone pressed Enter.
+        return fitDescription(userText, diagnostics) + "\n\n" + diagnostics
+    }
+
+    /**
+     * Truncates the description so the finished report still fits a URL.
+     *
+     * [MAX_USER_TEXT] is a *character* cap, but the budget that actually binds is the *encoded*
+     * length: an ASCII character costs one, a Cyrillic one three, a CJK character or emoji up
+     * to twelve. A character cap alone would let an English user write three times as much as
+     * a Russian one before either noticed.
+     *
+     * This happens inside [body] rather than at the URL, deliberately: the Settings screen
+     * previews exactly this string, so shortening later would send less than the user was
+     * shown. Truncation stays visible.
+     */
+    private fun fitDescription(userText: String, diagnostics: String): String {
         val trimmed = userText.trim()
-        val description = when {
-            trimmed.isEmpty() -> "_No description given._"
-            trimmed.length > MAX_USER_TEXT ->
-                trimmed.take(MAX_USER_TEXT) + "\n\n_(truncated)_"
-            else -> trimmed
+        if (trimmed.isEmpty()) return "_No description given._"
+
+        var candidate = trimmed.take(MAX_USER_TEXT)
+        while (candidate.isNotEmpty()) {
+            val marked = if (candidate.length < trimmed.length) {
+                candidate + "\n\n_(truncated)_"
+            } else {
+                candidate
+            }
+            val encodedLength = encode(marked + "\n\n" + diagnostics).length
+            if (encodedLength + URL_OVERHEAD_RESERVE <= MAX_URL_LENGTH) return marked
+            candidate = candidate.take(candidate.length / 2)
         }
+        return "_(description too long to include)_"
+    }
+
+    private fun diagnostics(facts: DeviceFacts): String {
         val failures = facts.recentFailures.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "none"
-
         return """
-            $description
-
             ### Diagnostics
 
             | | |
@@ -80,7 +117,8 @@ object FeedbackReport {
             | Recording limit | ${facts.recordingLimit} |
             | Recent failures | $failures |
 
-            _No transcript text, vocabulary, or audio is included in this report._
+            _LocalScribe added nothing beyond the diagnostics above: no transcript text, no
+            vocabulary, no audio. Anything else in this issue was typed by the reporter._
         """.trimIndent()
     }
 
