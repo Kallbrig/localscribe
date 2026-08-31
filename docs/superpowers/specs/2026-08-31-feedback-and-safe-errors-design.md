@@ -16,6 +16,11 @@ Three sites display whatever string an exception happened to carry:
 | `DictationForegroundService.kt:208` | `Error(e.message ?: "Dictation failed")` |
 | `SettingsScreen.kt:88` | `toast(it.message ?: "Export failed.")` |
 | `SettingsScreen.kt:105` | `toast(it.message ?: "Import failed.")` |
+| `ModelDownloadManager.kt:64` | `ModelDownloadState.Failed(e.message ?: "Download failed")` |
+
+The fourth is rendered by both model surfaces (`setupStatusLabel` in onboarding and
+`modelStatusLabel` in Settings), so a download failure currently shows text like
+`Unable to resolve host "huggingface.co"` or `HTTP 404 for https://…` under the model name.
 
 The dictation one became far more visible in `v0.2.0-beta.3`, which started toasting `Error`
 states that were previously set and never rendered. A user can now be shown, for example,
@@ -82,10 +87,15 @@ An exception is shown verbatim **only** if it is marked. The default is to hide.
 `domain/FailureCopy.kt`. No Android imports.
 
 ```kotlin
-enum class FailureContext(val code: String, val generic: String) {
+enum class FailureContext(
+    val code: String,
+    val generic: String,
+    val offlineHint: String? = null
+) {
     DICTATION("E-DICT", "Dictation failed. Nothing was inserted."),
     EXPORT("E-EXPORT", "Export failed."),
     IMPORT("E-IMPORT", "Import failed."),
+    DOWNLOAD("E-DOWNLOAD", "Download failed.", offlineHint = "Check your connection."),
 }
 
 object FailureCopy {
@@ -100,6 +110,15 @@ object FailureCopy {
 `userMessageFor` returns the throwable's message when it is a `UserFacingMessage` **and** its
 message is non-blank; otherwise `"${context.generic} (${context.code})"`. The code is what makes an
 otherwise generic message actionable in a report.
+
+**One exception, for genuine connectivity failures.** Replacing every download error with
+"Download failed." would take away the one diagnosis a user can act on themselves. So when a
+context declares an `offlineHint` and the throwable is specifically a connectivity type —
+`UnknownHostException`, `ConnectException`, `SocketTimeoutException`, `SSLException` — the hint is
+appended. The test is deliberately those four types rather than `IOException`: `ModelDownloadException`
+extends `IOException` and covers `HTTP 404` and "could not move completed download into place",
+where "check your connection" would be an actively misleading thing to tell someone. Only `DOWNLOAD`
+declares a hint; the other contexts have no plausible connectivity failure.
 
 `diagnosticFor` returns `"${context.code}/${error::class.simpleName}"` — e.g. `E-DICT/SQLiteFullException`.
 Anonymous and lambda classes can yield a null `simpleName`, so that case falls back to `"Unknown"`.
