@@ -1,6 +1,7 @@
 package dev.chaseallbright.localscribe.platform
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -89,16 +90,32 @@ class CpuSupportTest {
     }
 
     @Test
-    fun `an empty Features line is treated as evidence of absence`() {
-        // A present-but-empty list is a real answer from the kernel, unlike a missing line.
+    fun `an empty Features line fails open`() {
+        // fp and asimd are architecturally mandatory on every ARMv8-A core and always appear
+        // in elf_hwcap, so a real kernel never emits a Features line with nothing after it. An
+        // empty token set means procfs was redacted or synthesised -- an unfamiliar format,
+        // not an old CPU -- so this must fail open like any other unfamiliar format.
         val result = CpuSupport.evaluate("arm64-v8a", cpuinfo("Features\t:"))
-        assertEquals(CpuSupport.Unsupported(listOf("asimdhp", "asimddp")), result)
+        assertEquals(CpuSupport.Supported, result)
+    }
+
+    @Test
+    fun `a whitespace-only Features line fails open`() {
+        val result = CpuSupport.evaluate("arm64-v8a", cpuinfo("Features\t:   \t  "))
+        assertEquals(CpuSupport.Supported, result)
+    }
+
+    @Test
+    fun `fp16 and dotprod without atomics is supported`() {
+        // LSE is implied by dotprod; requiring it would only add a way to reject a working device.
+        val features = "Features\t: fp asimd aes pmull crc32 fphp asimdhp asimddp"
+        assertEquals(CpuSupport.Supported, CpuSupport.evaluate("arm64-v8a", cpuinfo(features)))
     }
 
     @Test
     fun `isSupported reflects the variant`() {
         assertTrue(CpuSupport.Supported.isSupported)
-        assertTrue(!CpuSupport.Unsupported(listOf("asimddp")).isSupported)
+        assertFalse(CpuSupport.Unsupported(listOf("asimddp")).isSupported)
     }
 
     @Test

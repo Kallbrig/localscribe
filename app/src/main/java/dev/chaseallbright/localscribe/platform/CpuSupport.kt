@@ -39,7 +39,7 @@ sealed interface CpuSupport {
         val REQUIRED_FEATURES = listOf(FEATURE_FP16, FEATURE_DOTPROD)
 
         /** The only ABI the `-march` flag is applied to; see both CMakeLists. */
-        const val ARM64_ABI = "arm64-v8a"
+        private const val ARM64_ABI = "arm64-v8a"
 
         const val UNSUPPORTED_HEADLINE = "This device's processor is too old for LocalScribe"
 
@@ -83,17 +83,22 @@ sealed interface CpuSupport {
             return if (missing.isEmpty()) Supported else Unsupported(missing)
         }
 
-        /** The feature tokens on [line], or null if it is not a `Features` line. */
+        /** The feature tokens on [line], or null if it is not a usable `Features` line. */
         private fun featuresOf(line: String): Set<String>? {
-            val separator = line.indexOf(':')
-            if (separator < 0) return null
-            if (line.take(separator).trim() != FEATURES_KEY) return null
+            val colonIndex = line.indexOf(':')
+            if (colonIndex < 0) return null
+            if (line.take(colonIndex).trim() != FEATURES_KEY) return null
             // Whole tokens, never substrings: "asimd", "asimdhp", "asimdrdm" and "asimddp"
             // share prefixes, so a contains() check would report features the CPU lacks.
-            return line.substring(separator + 1)
-                .split(' ', '\t')
+            val tokens = line.substring(colonIndex + 1)
+                // any whitespace: a merged token would read as a missing feature
+                .split(Regex("\\s+"))
                 .filter { it.isNotEmpty() }
                 .toSet()
+            // A Features line with no tokens cannot describe a real arm64 core: fp and asimd
+            // are architecturally mandatory and always reported. An empty list means procfs
+            // was redacted or synthesised -- an unfamiliar format, not an old CPU.
+            return tokens.ifEmpty { null }
         }
     }
 }
