@@ -287,8 +287,9 @@ Highest value first.
   management.
 - **The case for streaming transcription has weakened.** It was on the list when transcription was
   the bottleneck; at ~500 ms it no longer is, and whisper pads every clip to a 30-second window
-  internally, so chunking would not help short dictations at all. The memory argument for a buffer
-  cap still stands on its own.
+  internally, so chunking would not help short dictations at all. The memory argument that also
+  favoured it has since been answered directly by the recording limit, so nothing is left pointing
+  this way.
 
 ---
 
