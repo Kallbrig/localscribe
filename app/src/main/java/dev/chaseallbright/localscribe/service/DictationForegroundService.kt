@@ -29,6 +29,8 @@ import dev.chaseallbright.localscribe.dictation.ModelSession
 import dev.chaseallbright.localscribe.domain.DictationPipeline
 import dev.chaseallbright.localscribe.domain.WhisperTranscriber
 import dev.chaseallbright.localscribe.models.ModelManager
+import dev.chaseallbright.localscribe.platform.CpuSupport
+import dev.chaseallbright.localscribe.platform.DeviceCpu
 import dev.chaseallbright.localscribe.settings.AppPreferences
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -75,6 +77,16 @@ class DictationForegroundService : Service() {
 
     private fun startRecording() {
         if (isRecording) return
+        // Ahead of permissions and the model check, and long before the microphone opens: on a
+        // pre-ARMv8.2 CPU the native engine does not fail gracefully, it executes an
+        // instruction the silicon lacks and the kernel kills the process with SIGILL. Same
+        // reasoning that put the model check below here -- a failure discovered after the user
+        // has spoken costs them the dictation.
+        if (!DeviceCpu.isSupported) {
+            DictationController.setState(DictationUiState.Error(CpuSupport.UNSUPPORTED_HEADLINE))
+            stopSelf()
+            return
+        }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) !=
             PackageManager.PERMISSION_GRANTED
         ) {
