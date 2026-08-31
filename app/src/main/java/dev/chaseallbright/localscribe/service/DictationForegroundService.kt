@@ -47,6 +47,9 @@ class DictationForegroundService : Service() {
     /** True when the capture budget, not the user, ended this recording. */
     private var limitReached = false
 
+    /** Distinguishes recordings, so a limit callback cannot finalize a later one. */
+    private var recordingGeneration = 0
+
     // onLimitReached arrives on the recorder's own thread; service state is main-thread.
     private val mainHandler = Handler(Looper.getMainLooper())
     private var audioFocusRequest: AudioFocusRequest? = null
@@ -95,9 +98,10 @@ class DictationForegroundService : Service() {
             return
         }
 
+        val generation = ++recordingGeneration
         val recorder = AudioRecorder(
             limit = preferences.recordingLimit,
-            onLimitReached = { mainHandler.post { onRecordingLimitReached() } }
+            onLimitReached = { mainHandler.post { onRecordingLimitReached(generation) } }
         )
         audioRecorder = recorder
         limitReached = false
@@ -113,11 +117,15 @@ class DictationForegroundService : Service() {
      * The capture budget filled. Finalize exactly as a user confirm would -- the audio has
      * already been spoken and discarding it would repeat the bug onboarding fixed.
      */
-    private fun onRecordingLimitReached() {
+    private fun onRecordingLimitReached(generation: Int) {
         // The user may have cancelled in the window between the budget filling and this post
         // landing. cancelRecording() has already cleared isRecording, and a cancelled
         // dictation must never be resurrected and transcribed here.
-        if (!isRecording) return
+        //
+        // The generation check is the stronger guard: a thread orphaned by stopInternal()'s
+        // join timeout can post long after its own recording ended, by which time isRecording
+        // may be true again for an unrelated recording that never hit its limit.
+        if (!isRecording || generation != recordingGeneration) return
         limitReached = true
         confirmAndProcess()
     }
