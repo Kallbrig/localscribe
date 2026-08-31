@@ -1,6 +1,9 @@
 package dev.chaseallbright.localscribe.models
 
 import android.util.Log
+import dev.chaseallbright.localscribe.domain.FailureContext
+import dev.chaseallbright.localscribe.domain.FailureCopy
+import dev.chaseallbright.localscribe.domain.FailureLog
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -61,7 +64,11 @@ object ModelDownloadManager {
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "Download failed for ${spec.filename}", e)
-                update(spec.id, ModelDownloadState.Failed(e.message ?: "Download failed"))
+                FailureLog.record(FailureCopy.diagnosticFor(FailureContext.DOWNLOAD, e))
+                update(
+                    spec.id,
+                    ModelDownloadState.Failed(FailureCopy.userMessageFor(FailureContext.DOWNLOAD, e))
+                )
             }
         }
     }

@@ -5,6 +5,7 @@ import android.net.Uri
 import dev.chaseallbright.localscribe.BuildConfig
 import dev.chaseallbright.localscribe.data.LocalScribeDatabase
 import dev.chaseallbright.localscribe.data.VocabularyEntity
+import dev.chaseallbright.localscribe.domain.UserFacingException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -34,14 +35,14 @@ object ArchiveIo {
         )
         context.contentResolver.openOutputStream(destination, "wt")
             ?.use { it.write(json.toByteArray()) }
-            ?: error("Could not open the chosen file for writing.")
+            ?: throw UserFacingException("Could not open the chosen file for writing.")
         transcripts.size
     }
 
     suspend fun import(context: Context, source: Uri): ImportResult = withContext(Dispatchers.IO) {
         val json = context.contentResolver.openInputStream(source)
             ?.use { it.readBytes().decodeToString() }
-            ?: error("Could not open the chosen file.")
+            ?: throw UserFacingException("Could not open the chosen file.")
 
         val archive = TranscriptArchive.decode(json)
         val database = LocalScribeDatabase.getInstance(context)

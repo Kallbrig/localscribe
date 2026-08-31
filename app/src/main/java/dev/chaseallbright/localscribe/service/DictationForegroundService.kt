@@ -27,6 +27,9 @@ import dev.chaseallbright.localscribe.dictation.DictationController
 import dev.chaseallbright.localscribe.dictation.DictationUiState
 import dev.chaseallbright.localscribe.dictation.ModelSession
 import dev.chaseallbright.localscribe.domain.DictationPipeline
+import dev.chaseallbright.localscribe.domain.FailureContext
+import dev.chaseallbright.localscribe.domain.FailureCopy
+import dev.chaseallbright.localscribe.domain.FailureLog
 import dev.chaseallbright.localscribe.domain.WhisperTranscriber
 import dev.chaseallbright.localscribe.models.ModelManager
 import dev.chaseallbright.localscribe.platform.CpuSupport
@@ -205,7 +208,13 @@ class DictationForegroundService : Service() {
                 DictationController.setState(DictationUiState.Idle)
                 throw e
             } catch (e: Exception) {
-                DictationController.setState(DictationUiState.Error(e.message ?: "Dictation failed"))
+                // The raw message is written for a developer, not a user, and since beta.3 it
+                // is toasted. Log it in full and show vetted copy plus a code instead.
+                Log.w(TAG, "Dictation failed", e)
+                FailureLog.record(FailureCopy.diagnosticFor(FailureContext.DICTATION, e))
+                DictationController.setState(
+                    DictationUiState.Error(FailureCopy.userMessageFor(FailureContext.DICTATION, e))
+                )
             } finally {
                 stopSelf()
             }
@@ -282,5 +291,6 @@ class DictationForegroundService : Service() {
         const val ACTION_CONFIRM = "dev.chaseallbright.localscribe.action.CONFIRM"
         const val ACTION_CANCEL = "dev.chaseallbright.localscribe.action.CANCEL"
         private const val NOTIFICATION_ID = 1001
+        private const val TAG = "DictationService"
     }
 }

@@ -3,6 +3,7 @@ package dev.chaseallbright.localscribe.transfer
 import dev.chaseallbright.localscribe.data.TranscriptEntity
 import dev.chaseallbright.localscribe.domain.CleanupBackend
 import dev.chaseallbright.localscribe.domain.CleanupMode
+import dev.chaseallbright.localscribe.domain.UserFacingMessage
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -29,7 +30,9 @@ object TranscriptArchive {
         val skipped: Int = 0
     )
 
-    class UnsupportedArchive(message: String) : IllegalArgumentException(message)
+    /** Its messages are written for users, so they survive [FailureCopy]'s default of hiding. */
+    class UnsupportedArchive(message: String) :
+        IllegalArgumentException(message), UserFacingMessage
 
     fun encode(
         vocabulary: List<String>,

@@ -47,6 +47,9 @@ import dev.chaseallbright.localscribe.audio.RecordingLimit
 import dev.chaseallbright.localscribe.backup.BackupSettings
 import dev.chaseallbright.localscribe.dictation.ModelSession
 import dev.chaseallbright.localscribe.domain.CleanupMode
+import dev.chaseallbright.localscribe.domain.FailureContext
+import dev.chaseallbright.localscribe.domain.FailureCopy
+import dev.chaseallbright.localscribe.domain.FailureLog
 import dev.chaseallbright.localscribe.models.CleanupModelTier
 import dev.chaseallbright.localscribe.models.ModelDownloadManager
 import dev.chaseallbright.localscribe.models.ModelDownloadState
@@ -85,7 +88,10 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         scope.launch {
             runCatching { ArchiveIo.export(context, uri) }
                 .onSuccess { toast("Exported $it transcript${if (it == 1) "" else "s"} and your vocabulary.") }
-                .onFailure { toast(it.message ?: "Export failed.") }
+                .onFailure {
+                    FailureLog.record(FailureCopy.diagnosticFor(FailureContext.EXPORT, it))
+                    toast(FailureCopy.userMessageFor(FailureContext.EXPORT, it))
+                }
         }
     }
 
@@ -102,7 +108,10 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                             "${result.wordsAdded} word(s)$skipped."
                     )
                 }
-                .onFailure { toast(it.message ?: "Import failed.") }
+                .onFailure {
+                    FailureLog.record(FailureCopy.diagnosticFor(FailureContext.IMPORT, it))
+                    toast(FailureCopy.userMessageFor(FailureContext.IMPORT, it))
+                }
         }
     }
 
