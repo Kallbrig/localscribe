@@ -29,6 +29,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chaseallbright.localscribe.backup.BackupSettings
+import dev.chaseallbright.localscribe.feedback.DeviceFactsCollector
+import dev.chaseallbright.localscribe.feedback.FeedbackLauncher
+import dev.chaseallbright.localscribe.feedback.FeedbackReport
 import dev.chaseallbright.localscribe.models.ModelDownloadManager
 import dev.chaseallbright.localscribe.models.ModelDownloadState
 import dev.chaseallbright.localscribe.models.ModelManager
@@ -92,7 +95,18 @@ fun OnboardingScreen(modifier: Modifier = Modifier) {
 
         val cpuSupport = DeviceCpu.support
         if (cpuSupport is CpuSupport.Unsupported) {
-            UnsupportedDeviceNotice(cpuSupport)
+            UnsupportedDeviceNotice(
+                unsupported = cpuSupport,
+                onReport = {
+                    val facts = DeviceFactsCollector.collect(context)
+                    FeedbackLauncher.openIssue(
+                        context = context,
+                        title = "Unsupported device: ${facts.manufacturer} ${facts.model}",
+                        body = FeedbackReport.body(facts, ""),
+                        label = FeedbackLauncher.LABEL_DEVICE_REPORT
+                    )
+                }
+            )
         }
 
         PermissionRow(

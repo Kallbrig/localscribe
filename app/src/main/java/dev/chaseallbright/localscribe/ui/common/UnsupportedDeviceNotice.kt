@@ -8,6 +8,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -24,6 +25,7 @@ import dev.chaseallbright.localscribe.platform.CpuSupport
 @Composable
 fun UnsupportedDeviceNotice(
     unsupported: CpuSupport.Unsupported,
+    onReport: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -52,6 +54,10 @@ fun UnsupportedDeviceNotice(
                     unsupported.missingFeatures.joinToString(", "),
                 style = MaterialTheme.typography.bodySmall
             )
+            // The only channel from the one population the project cannot otherwise hear from.
+            // Whether it is worth building a second, baseline-compiled native library depends
+            // entirely on whether anyone actually owns such a device.
+            TextButton(onClick = onReport) { Text("Report this device") }
         }
     }
 }

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -17,6 +18,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -50,6 +52,9 @@ import dev.chaseallbright.localscribe.domain.CleanupMode
 import dev.chaseallbright.localscribe.domain.FailureContext
 import dev.chaseallbright.localscribe.domain.FailureCopy
 import dev.chaseallbright.localscribe.domain.FailureLog
+import dev.chaseallbright.localscribe.feedback.DeviceFactsCollector
+import dev.chaseallbright.localscribe.feedback.FeedbackLauncher
+import dev.chaseallbright.localscribe.feedback.FeedbackReport
 import dev.chaseallbright.localscribe.models.CleanupModelTier
 import dev.chaseallbright.localscribe.models.ModelDownloadManager
 import dev.chaseallbright.localscribe.models.ModelDownloadState
@@ -186,7 +191,18 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
 
         val cpuSupport = DeviceCpu.support
         if (cpuSupport is CpuSupport.Unsupported) {
-            UnsupportedDeviceNotice(cpuSupport)
+            UnsupportedDeviceNotice(
+                unsupported = cpuSupport,
+                onReport = {
+                    val facts = DeviceFactsCollector.collect(context)
+                    FeedbackLauncher.openIssue(
+                        context = context,
+                        title = "Unsupported device: ${facts.manufacturer} ${facts.model}",
+                        body = FeedbackReport.body(facts, ""),
+                        label = FeedbackLauncher.LABEL_DEVICE_REPORT
+                    )
+                }
+            )
         }
 
         SettingsSection(title = "Cleanup style") {
@@ -347,6 +363,57 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                     backupSettings.choices = it
                 }
             )
+        }
+
+        SettingsSection(title = "Feedback") {
+            var feedbackText by remember { mutableStateOf("") }
+            val facts = DeviceFactsCollector.collect(context)
+            val reportBody = FeedbackReport.body(facts, feedbackText)
+
+            Text(
+                text = "Opens a pre-filled issue on GitHub for you to review and submit. " +
+                    "LocalScribe sends nothing itself.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedTextField(
+                value = feedbackText,
+                onValueChange = { feedbackText = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("What happened?") },
+                minLines = 3
+            )
+            // Shown in full before anything leaves, for the same reason the backup screen names
+            // exactly what travels.
+            Text(
+                text = "This is what gets attached:",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = reportBody,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 220.dp)
+                    .verticalScroll(rememberScrollState())
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    onClick = {
+                        FeedbackLauncher.openIssue(
+                            context = context,
+                            title = "Feedback from ${facts.appVersion}",
+                            body = reportBody,
+                            label = FeedbackLauncher.LABEL_FEEDBACK
+                        )
+                    }
+                ) { Text("Open GitHub issue") }
+                TextButton(
+                    onClick = { FeedbackLauncher.copyReport(context, reportBody) }
+                ) { Text("Copy report") }
+            }
         }
 
         SettingsSection(title = "Permissions") {
