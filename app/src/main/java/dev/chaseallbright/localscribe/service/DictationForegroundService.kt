@@ -10,7 +10,9 @@ import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -39,8 +41,14 @@ import kotlinx.coroutines.launch
 class DictationForegroundService : Service() {
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + Job())
-    private val audioRecorder = AudioRecorder()
+    private var audioRecorder: AudioRecorder? = null
     private var isRecording = false
+
+    /** True when the capture budget, not the user, ended this recording. */
+    private var limitReached = false
+
+    // onLimitReached arrives on the recorder's own thread; service state is main-thread.
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var audioFocusRequest: AudioFocusRequest? = null
 
     // Runs on the main thread (the request is made without a Handler, so callbacks land on
@@ -74,7 +82,8 @@ class DictationForegroundService : Service() {
         // Checked before the microphone opens, not after. The model is only touched once the
         // pipeline runs, so a missing one used to surface only after the user had already
         // spoken -- and the recording was then discarded.
-        val whisperTier = AppPreferences(applicationContext).whisperTier
+        val preferences = AppPreferences(applicationContext)
+        val whisperTier = preferences.whisperTier
         if (!ModelManager(applicationContext).isWhisperModelReady(whisperTier)) {
             DictationController.setState(
                 DictationUiState.Error(
@@ -86,11 +95,31 @@ class DictationForegroundService : Service() {
             return
         }
 
+        val recorder = AudioRecorder(
+            limit = preferences.recordingLimit,
+            onLimitReached = { mainHandler.post { onRecordingLimitReached() } }
+        )
+        audioRecorder = recorder
+        limitReached = false
+
         startForegroundWithNotification(getString(R.string.dictation_notification_recording))
         requestAudioFocus()
-        audioRecorder.start()
+        recorder.start()
         isRecording = true
         DictationController.setState(DictationUiState.Recording)
+    }
+
+    /**
+     * The capture budget filled. Finalize exactly as a user confirm would -- the audio has
+     * already been spoken and discarding it would repeat the bug onboarding fixed.
+     */
+    private fun onRecordingLimitReached() {
+        // The user may have cancelled in the window between the budget filling and this post
+        // landing. cancelRecording() has already cleared isRecording, and a cancelled
+        // dictation must never be resurrected and transcribed here.
+        if (!isRecording) return
+        limitReached = true
+        confirmAndProcess()
     }
 
     private fun confirmAndProcess() {
@@ -98,10 +127,21 @@ class DictationForegroundService : Service() {
             stopSelf()
             return
         }
+        val recorder = audioRecorder
+        if (recorder == null) {
+            stopSelf()
+            return
+        }
         isRecording = false
-        val samples = audioRecorder.stop()
+        val samples = recorder.stop()
+        audioRecorder = null
         abandonAudioFocus()
-        updateNotification(getString(R.string.dictation_notification_processing))
+        updateNotification(
+            getString(
+                if (limitReached) R.string.dictation_notification_limit_reached
+                else R.string.dictation_notification_processing
+            )
+        )
         DictationController.setState(DictationUiState.Processing)
 
         serviceScope.launch {
@@ -154,7 +194,8 @@ class DictationForegroundService : Service() {
 
     private fun cancelRecording() {
         if (isRecording) {
-            audioRecorder.cancel()
+            audioRecorder?.cancel()
+            audioRecorder = null
             isRecording = false
             abandonAudioFocus()
         }
@@ -210,7 +251,8 @@ class DictationForegroundService : Service() {
         super.onDestroy()
         serviceScope.cancel()
         if (isRecording) {
-            audioRecorder.cancel()
+            audioRecorder?.cancel()
+            audioRecorder = null
             abandonAudioFocus()
         }
     }
