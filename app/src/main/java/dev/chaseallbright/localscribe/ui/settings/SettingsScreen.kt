@@ -55,6 +55,8 @@ import dev.chaseallbright.localscribe.models.ModelSpec
 import dev.chaseallbright.localscribe.models.WhisperModelTier
 import java.io.File
 import dev.chaseallbright.localscribe.permissions.PermissionsState
+import dev.chaseallbright.localscribe.platform.CpuSupport
+import dev.chaseallbright.localscribe.platform.DeviceCpu
 import dev.chaseallbright.localscribe.settings.AppPreferences
 import dev.chaseallbright.localscribe.transfer.ArchiveIo
 import dev.chaseallbright.localscribe.transfer.TranscriptArchive
@@ -62,6 +64,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import dev.chaseallbright.localscribe.ui.common.BackupChoicesSection
 import dev.chaseallbright.localscribe.ui.common.PermissionRow
+import dev.chaseallbright.localscribe.ui.common.UnsupportedDeviceNotice
 
 @Composable
 fun SettingsScreen(modifier: Modifier = Modifier) {
@@ -172,6 +175,11 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     ) {
         Text(text = "Settings", style = MaterialTheme.typography.headlineMedium)
 
+        val cpuSupport = DeviceCpu.support
+        if (cpuSupport is CpuSupport.Unsupported) {
+            UnsupportedDeviceNotice(cpuSupport)
+        }
+
         SettingsSection(title = "Cleanup style") {
             CleanupMode.entries.forEach { mode ->
                 RadioOptionRow(
@@ -226,40 +234,44 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             )
         }
 
-        SettingsSection(title = "Speech model") {
-            WhisperModelTier.entries.forEach { tier ->
-                ModelRow(
-                    spec = tier,
-                    file = modelManager.speechModelFile(tier),
-                    selected = whisperTier == tier,
-                    downloadStates = downloadStates,
-                    onSelect = {
-                        whisperTier = tier
-                        preferences.whisperTier = tier
-                        ModelSession.invalidate()
-                    }
-                )
+        // See OnboardingScreen: nothing in these two sections can be acted on when the CPU
+        // cannot run the engine, so they are hidden rather than shown as dead controls.
+        if (cpuSupport.isSupported) {
+            SettingsSection(title = "Speech model") {
+                WhisperModelTier.entries.forEach { tier ->
+                    ModelRow(
+                        spec = tier,
+                        file = modelManager.speechModelFile(tier),
+                        selected = whisperTier == tier,
+                        downloadStates = downloadStates,
+                        onSelect = {
+                            whisperTier = tier
+                            preferences.whisperTier = tier
+                            ModelSession.invalidate()
+                        }
+                    )
+                }
             }
-        }
 
-        SettingsSection(title = "Cleanup model") {
-            Text(
-                text = "Optional. Without one, transcripts get basic rule-based cleanup.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            CleanupModelTier.entries.forEach { tier ->
-                ModelRow(
-                    spec = tier,
-                    file = modelManager.cleanupModelFile(tier),
-                    selected = cleanupTier == tier,
-                    downloadStates = downloadStates,
-                    onSelect = {
-                        cleanupTier = tier
-                        preferences.cleanupTier = tier
-                        ModelSession.invalidate()
-                    }
+            SettingsSection(title = "Cleanup model") {
+                Text(
+                    text = "Optional. Without one, transcripts get basic rule-based cleanup.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                CleanupModelTier.entries.forEach { tier ->
+                    ModelRow(
+                        spec = tier,
+                        file = modelManager.cleanupModelFile(tier),
+                        selected = cleanupTier == tier,
+                        downloadStates = downloadStates,
+                        onSelect = {
+                            cleanupTier = tier
+                            preferences.cleanupTier = tier
+                            ModelSession.invalidate()
+                        }
+                    )
+                }
             }
         }
 
