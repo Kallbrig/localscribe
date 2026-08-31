@@ -1,8 +1,8 @@
 # LocalScribe Android — Handoff
 
-_Last updated: 2026-08-27. Repo: https://github.com/Kallbrig/localscribe (public). Default branch `master`._
+_Last updated: 2026-08-31. Repo: https://github.com/Kallbrig/localscribe (public). Default branch `master`._
 
-**Stable: `v0.1.7`. In flight: `v0.2.0-beta.1`.** Unit suite: 161 tests, all passing.
+**Stable: `v0.1.7`. In flight: `v0.2.0-beta.2`.** Unit suite: 161 tests, all passing.
 
 Verified on a Galaxy S25 Ultra (Android 16, 8 cores, 11.4 GB RAM, arm64-v8a).
 
@@ -218,6 +218,52 @@ picker, so no storage permission is needed and the user chooses where it lands.
 
 ---
 
+## How the recording limit was built
+
+Recorded because the artefacts outlive the session and are worth finding again, and because two
+of the defects below were caught by process rather than by luck.
+
+The work ran as **spec → plan → task-by-task execution, with two reviews after every task**:
+
+| Stage | Artefact |
+|---|---|
+| Design, agreed before any code | [`docs/superpowers/specs/2026-08-30-recording-limit-design.md`](superpowers/specs/2026-08-30-recording-limit-design.md) |
+| Eight tasks, TDD, exact code per step | [`docs/superpowers/plans/2026-08-30-recording-limit.md`](superpowers/plans/2026-08-30-recording-limit.md) |
+
+Each task got a **spec-compliance review** (did it build what was asked, nothing more, nothing
+less) and then a **code-quality review**. Both were told not to trust the implementer's report and
+to re-derive every claim — test counts, arithmetic, and hand-traces — from the code. That is what
+produced the two findings the plan itself had missed:
+
+- **The stale limit callback.** `onRecordingLimitReached()` originally guarded on the service-wide
+  `isRecording` flag, which says *a* recording is live, not *which* one. A capture thread orphaned
+  by `stopInternal()`'s one-second join can post long after its own recording ended; by then the
+  flag may be true again for an unrelated dictation, and the callback would finalize that one early
+  and mislabel it. Fixed with a per-recording generation counter, captured by value in the callback
+  closure.
+- **The slider had no accessible label.** It is the app's first `Slider`, and Material3 sets no
+  default `contentDescription`, so TalkBack would have announced a raw index — "1 of 0 to 4" — for a
+  control whose entire meaning is minutes. Every other interactive element in the app already labels
+  itself, so this was below the codebase's own bar rather than a new standard.
+
+Ordering mattered once: the audio-focus work ([#1](https://github.com/Kallbrig/localscribe/pull/1))
+was still an open PR touching the same four methods of `DictationForegroundService`. It was merged
+first so the limit work could branch from it, rather than both landing and conflicting.
+
+**A stale figure worth knowing about.** The header claimed 135 tests; the real pre-change count was
+139. Nothing had updated it. The number is now derived from the JUnit XML rather than from
+arithmetic — if you change it, sum it rather than adding to the last figure:
+
+```bash
+grep -rho 'tests="[0-9]*"' app/build/test-results/testDebugUnitTest/*.xml | grep -o '[0-9]*' | awk '{s+=$1} END {print s}'
+```
+
+`--rerun-tasks` occasionally fails on a stale Gradle daemon holding a locked jar in
+`whisper-jni`/`llama-jni`. `./gradlew --stop` then retry; it is not a real failure, but a cached
+`UP-TO-DATE` pass is not a verification either — force the rerun before trusting a green suite.
+
+---
+
 ## Left undone
 
 Highest value first.
@@ -254,6 +300,31 @@ Highest value first.
 
 ## Discussed, not acted on
 
+- **A `require(chunk.size % 2 == 0)` guard in `Pcm16`.** Raised twice in review: the function
+  documents a whole-frame invariant it does not enforce, and violating it appends one fabricated
+  `0.0f` sample to the tail. Declined because the guard would throw inside `stop()`, on the main
+  thread, mid-dictation — trading a **lost dictation** for an inaudible artefact, in an app whose
+  stated principle is that spoken audio is never discarded. With no instrumented tests reaching
+  `AudioRecorder`, it would only ever fire in production, where it is strictly worse than what it
+  guards against.
+- **Moving the whole-frame truncation out of `AudioRecorder`.** `wholeFrames = accepted - (accepted
+  % BYTES_PER_SAMPLE)` is the one place a pure unit's contract is enforced by untested Android glue.
+  Relocating it into `RecordingBudget` would make a generic byte budget PCM-frame-aware, which is
+  worse layering; a `Pcm16` helper would work if it is ever worth revisiting. Correct today: only
+  the terminal, limit-filling chunk can have `accepted < read`, and every limit is an even number of
+  bytes.
+- **Dropping the mirrored `recordingLimit` state in `SettingsScreen`.** It drives no recomposition
+  and duplicates `preferences.recordingLimit`. Kept because `whisperTier`, `cleanupTier`, and
+  `cleanupMode` are all held the same way in that file; removing it would make the new section the
+  only one reading preferences straight from an event handler.
+- **A double-tap on confirm cancelling an in-flight dictation.** Reported in review as a live race:
+  `confirmAndProcess()`'s `if (!isRecording) { stopSelf(); return }` would tear the service down
+  while `serviceScope` was still transcribing, and `onDestroy()`'s `serviceScope.cancel()` would
+  drop the dictation. **Investigated and found unreachable.** `RecordingPill` — the only thing that
+  emits `ACTION_CONFIRM` — renders solely in `Recording` state and is replaced by a button-less
+  `ProcessingPill` the moment state changes; the notification has no actions. Hitting it would need
+  two taps inside roughly one frame. Left alone deliberately: it is defensive dead code, not a bug.
+  Worth re-checking if a notification action or any second sender of `ACTION_CONFIRM` is ever added.
 - **Qwen 3.8** (released August 2026). Two variants, neither usable: **3.8-Max** is 2.4T parameters
   and **API-only**, contradicting the whole premise; **3.8-27B** is the smallest open-weight release
   at ~28B — roughly 56× the current 0.5B, ~16 GB at Q4 against 11.4 GB of device RAM. The realistic
