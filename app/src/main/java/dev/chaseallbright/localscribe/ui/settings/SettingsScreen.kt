@@ -9,7 +9,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
@@ -17,8 +19,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -27,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +52,12 @@ import dev.chaseallbright.localscribe.audio.RecordingLimit
 import dev.chaseallbright.localscribe.backup.BackupSettings
 import dev.chaseallbright.localscribe.dictation.ModelSession
 import dev.chaseallbright.localscribe.domain.CleanupMode
+import dev.chaseallbright.localscribe.domain.FailureContext
+import dev.chaseallbright.localscribe.domain.FailureCopy
+import dev.chaseallbright.localscribe.domain.FailureLog
+import dev.chaseallbright.localscribe.feedback.DeviceFactsCollector
+import dev.chaseallbright.localscribe.feedback.FeedbackLauncher
+import dev.chaseallbright.localscribe.feedback.FeedbackReport
 import dev.chaseallbright.localscribe.models.CleanupModelTier
 import dev.chaseallbright.localscribe.models.ModelDownloadManager
 import dev.chaseallbright.localscribe.models.ModelDownloadState
@@ -85,7 +96,10 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         scope.launch {
             runCatching { ArchiveIo.export(context, uri) }
                 .onSuccess { toast("Exported $it transcript${if (it == 1) "" else "s"} and your vocabulary.") }
-                .onFailure { toast(it.message ?: "Export failed.") }
+                .onFailure {
+                    FailureLog.record(FailureCopy.diagnosticFor(FailureContext.EXPORT, it))
+                    toast(FailureCopy.userMessageFor(FailureContext.EXPORT, it))
+                }
         }
     }
 
@@ -102,7 +116,10 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                             "${result.wordsAdded} word(s)$skipped."
                     )
                 }
-                .onFailure { toast(it.message ?: "Import failed.") }
+                .onFailure {
+                    FailureLog.record(FailureCopy.diagnosticFor(FailureContext.IMPORT, it))
+                    toast(FailureCopy.userMessageFor(FailureContext.IMPORT, it))
+                }
         }
     }
 
@@ -177,7 +194,10 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
 
         val cpuSupport = DeviceCpu.support
         if (cpuSupport is CpuSupport.Unsupported) {
-            UnsupportedDeviceNotice(cpuSupport)
+            UnsupportedDeviceNotice(
+                unsupported = cpuSupport,
+                onReport = { FeedbackLauncher.reportDevice(context) }
+            )
         }
 
         SettingsSection(title = "Cleanup style") {
@@ -338,6 +358,76 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                     backupSettings.choices = it
                 }
             )
+        }
+
+        SettingsSection(title = "Feedback") {
+            // Saveable, unlike everything else on this screen: the other state is re-read from
+            // preferences on recreation, but a half-written paragraph only exists here and a
+            // rotation would otherwise discard it.
+            var feedbackText by rememberSaveable { mutableStateOf("") }
+            // Collected fresh on every recomposition, deliberately. Everything this report
+            // quotes -- cleanup style, both model tiers, the recording limit, and whether each
+            // model is on disk -- is edited in sections directly above this one, so any cache
+            // keyed on a subset of them reports something the user just changed. Keying on all
+            // of them including download progress would re-collect on every progress tick.
+            // Instead the one expensive input, the totalRamGb() binder call, is cached inside
+            // DeviceFactsCollector, leaving preference reads and two file stats per keystroke.
+            val facts = DeviceFactsCollector.collect(context)
+            val reportBody = FeedbackReport.body(facts, feedbackText)
+
+            Text(
+                text = "Opens a pre-filled issue on GitHub for you to review and submit. " +
+                    "LocalScribe sends nothing itself.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedTextField(
+                value = feedbackText,
+                onValueChange = { feedbackText = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("What happened?") },
+                minLines = 3
+            )
+            // Shown in full before anything leaves, for the same reason the backup screen names
+            // exactly what travels.
+            Text(
+                text = "This is what gets attached:",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            // Bordered so it reads as a distinct pane. Without a container the user cannot tell
+            // this region scrolls independently, and dragging it feels like the page is stuck.
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Text(
+                    text = reportBody,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .heightIn(max = 220.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(12.dp)
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    onClick = {
+                        FeedbackLauncher.openIssue(
+                            context = context,
+                            title = "Feedback from ${facts.appVersion}",
+                            body = reportBody,
+                            label = FeedbackLauncher.LABEL_FEEDBACK
+                        )
+                    }
+                ) { Text("Open GitHub issue") }
+                TextButton(
+                    onClick = { FeedbackLauncher.copyReport(context, reportBody) }
+                ) { Text("Copy report") }
+            }
         }
 
         SettingsSection(title = "Permissions") {

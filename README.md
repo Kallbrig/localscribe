@@ -23,7 +23,7 @@ the two.
   clipboard-only as a last resort -- the transcript is never silently lost
 - Deterministic offline cleanup fallback if the local LLM cannot load
 - Local transcript history with search; no audio is ever retained
-- No accounts, no telemetry, no network access except downloading models you chose
+- No accounts, no telemetry; the only thing LocalScribe itself fetches is a model you chose
 
 ## Install
 
@@ -47,6 +47,26 @@ vocabulary and export still work there.
    instead of AI cleanup.
 5. Focus any text field, tap the mic bubble, dictate, tap the checkmark. Everything after
    the download is fully offline.
+
+## Feedback
+
+Settings → **Feedback**. Write what happened and LocalScribe opens your browser at a pre-filled
+GitHub issue for you to review and submit. It attaches app and Android version, device model,
+processor and RAM details, which models you have and your cleanup style and recording limit, plus
+the codes of any recent failures — and shows you that text in full first.
+
+**No transcript text, vocabulary, or audio is ever attached.** The only free text in a report is
+what you type into the box yourself.
+
+Worth being precise about what "LocalScribe sends nothing" means here: the app makes no network
+request of its own: it hands a URL to your browser. But the details are *in* that URL, so they
+reach GitHub as soon as the page loads — before you press Submit, and whether or not you go
+through with it. If you would rather not open a browser at all, **Copy report** puts the same text
+on your clipboard to do with as you like.
+
+If your processor is too old to run LocalScribe, the notice on the setup screen has a **Report
+this device** button. Those reports are what decide whether it is worth building a second engine
+for older hardware.
 
 ## Building from source
 

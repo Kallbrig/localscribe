@@ -2,7 +2,7 @@
 
 _Last updated: 2026-08-31. Repo: https://github.com/Kallbrig/localscribe (public). Default branch `master`._
 
-**Stable: `v0.1.7`. In flight: `v0.2.0-beta.3`.** Unit suite: 175 tests, all passing.
+**Stable: `v0.1.7`. In flight: `v0.2.0-beta.4`.** Unit suite: 204 tests, all passing.
 
 Verified on a Galaxy S25 Ultra (Android 16, 8 cores, 11.4 GB RAM, arm64-v8a).
 
@@ -36,6 +36,61 @@ installed v0.1.1 or later. Back both up off that machine.
 ---
 
 ## What changed in this session
+
+### Errors are written for people, and there is a way to report them
+
+Four sites displayed whatever string an exception happened to carry. Users could be shown
+`database or disk is full (code 13 SQLITE_FULL[13])` after a dictation, or
+`Unable to resolve host "huggingface.co"` under a model download. `v0.2.0-beta.3` made the
+dictation one far more visible, because it started toasting `Error` states that had previously
+been set and never rendered.
+
+- **A blanket ban on `e.message` would have been wrong**, and that is the whole design. Some
+  exceptions carry copy deliberately written for users -- `UnsupportedArchive`'s "This file is not
+  a LocalScribe export.", the missing-model refusal. A `UserFacingMessage` marker interface
+  separates the two, and the default is to hide. `FailureCopy` is pure and decides both what to
+  show and what to record.
+- **What is recorded is the exception's class, never its message.** A diagnostic reads
+  `E-DICT/SQLiteFullException`. That is what makes it safe for a report to travel, and the real
+  message still reaches logcat.
+- **One deliberate exception, for connectivity.** Replacing every download error with "Download
+  failed." would remove the one diagnosis a user can act on, so `UnknownHostException`,
+  `ConnectException`, `SocketTimeoutException` and `SSLException` add "Check your connection."
+  Deliberately not `IOException`: `ModelDownloadException` extends it and covers `HTTP 404`,
+  where that advice would be actively misleading. The check **walks the cause chain**, because
+  `ModelDownloader` retries and rethrows everything wrapped -- checking only the top level made
+  the entire branch unreachable, which is how it first shipped in review.
+
+Feedback needs no backend, no database and no account of the maintainer's:
+
+- `FeedbackReport` builds a markdown body and a percent-encoded `issues/new` URL; the app hands it
+  to the browser with `ACTION_VIEW` and the user presses Submit. **LocalScribe makes no network
+  call**, so "one network call site, one host" stays literally true.
+- **`DeviceFacts` is the privacy guarantee.** It has no field capable of holding a transcript, a
+  vocabulary word, audio, or an exception message, so a report cannot carry one. The precise claim
+  is "LocalScribe never puts dictated text in a report; only you can, by typing it" -- the free-text
+  box is the one place user content can enter, and Settings shows the finished report in full
+  before anything happens.
+- **Honest about when it travels.** The details are in the URL, so they reach GitHub the moment
+  the browser loads the page -- before Submit, and whether or not the user goes through with it.
+  README says so rather than implying the report waits for consent.
+- A **Report this device** button on the unsupported-CPU notice, shared by both screens via
+  `FeedbackLauncher.reportDevice`. Labels `feedback` and `device-report` exist on the repo. Note
+  GitHub only honours `?labels=` for people with triage rights, so the `Unsupported device:
+  <model>` title prefix is what actually makes triage work.
+
+Two defects worth remembering, both caught in review rather than by tests:
+
+- **Multi-line feedback rendered as a code block.** Kotlin interpolates before `trimIndent()`
+  runs, so a user's second line at indent zero dragged the common indent to zero and left every
+  template line with twelve leading spaces -- an indented code block in GitHub markdown. The
+  diagnostics table stopped being a table the moment anyone pressed Enter, in a box configured
+  with `minLines = 3`. That is the modal case, not an edge case.
+- **A character cap is not a URL budget.** Truncating at 2000 characters only holds for ASCII;
+  Cyrillic costs three bytes per character and emoji up to twelve, so a Russian user writing a
+  short paragraph hit the clipboard fallback while an English user wrote three times as much.
+  Truncation is now against the encoded length, and stays inside `body()` so the preview still
+  shows exactly what is sent.
 
 ### Old processors are refused, not crashed
 
@@ -375,8 +430,9 @@ Highest value first.
   build a baseline arm64 library alongside the armv8.2 one and pick at load time. Sized **M**, and
   the blocker is not the code — it is that **the baseline path cannot be verified without a
   pre-2018 device**, so it would ship untested. It also roughly doubles an already ~8-minute
-  native build and the APK's native payload. Worth doing only if someone reports owning such a
-  device, or one can be borrowed.
+  native build and the APK's native payload. There is now a channel for finding out whether
+  anyone owns such a device: the **Report this device** button files an issue labelled
+  `device-report`, titled `Unsupported device: <model>`. Check that label before deciding.
 - **No instrumented tests on the riskiest code.** The three accessibility insertion tiers, focus
   tracking, and the JNI boundary have none. Nor do the new Compose surfaces: history interactions,
   delete confirmations, clipboard/share intents, the backup agent's `onFullBackup`. The pure logic
@@ -496,7 +552,7 @@ Verified against the code, not assumed.
 
 | Claim | Status |
 |---|---|
-| No telemetry or analytics | Zero third-party SDKs; dependencies are androidx/kotlin only |
+| No telemetry or analytics | Zero third-party SDKs; dependencies are androidx/kotlin only. Feedback is user-initiated and carries no transcript text; the app posts nothing, it opens a prefilled URL in the browser -- so the details reach GitHub on page load, before Submit |
 | Nothing dictated leaves the device | One network call site (`ModelDownloader`), one host (`huggingface.co`), model files only |
 | Audio never retained | Buffered in memory, capped by the recording limit, drained on stop and cleared on cancel; never written to disk |
 | Nothing sensitive logged | No transcript text anywhere; perf logs are timings and character counts |

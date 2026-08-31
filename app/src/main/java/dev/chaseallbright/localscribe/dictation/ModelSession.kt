@@ -5,6 +5,7 @@ import android.content.Context
 import android.util.Log
 import dev.chaseallbright.localscribe.bridge.WhisperBridge
 import dev.chaseallbright.localscribe.domain.AutoCleaner
+import dev.chaseallbright.localscribe.domain.UserFacingException
 import dev.chaseallbright.localscribe.models.ModelManager
 import dev.chaseallbright.localscribe.models.RamTier
 import dev.chaseallbright.localscribe.platform.CpuSupport
@@ -69,11 +70,17 @@ object ModelSession {
                     val tier = AppPreferences(appContext).whisperTier
                     val file = ModelManager(appContext).speechModelFile(tier)
                     if (!file.isFile) {
-                        error("${tier.displayName} speech model isn't downloaded. Open LocalScribe to download it.")
+                        throw UserFacingException(
+                            "${tier.displayName} speech model isn't downloaded. " +
+                                "Open LocalScribe to download it."
+                        )
                     }
                     val loadStart = System.nanoTime()
                     val bridge = WhisperBridge.load(file.absolutePath)
-                        ?: error("Failed to load speech model")
+                        ?: throw UserFacingException(
+                            "The speech model could not be loaded. It may have been " +
+                                "interrupted mid-download -- delete and re-download it in Settings."
+                        )
                     Log.i(PERF_TAG, "whisper load=${(System.nanoTime() - loadStart) / 1_000_000}ms")
                     bridge
                 },
