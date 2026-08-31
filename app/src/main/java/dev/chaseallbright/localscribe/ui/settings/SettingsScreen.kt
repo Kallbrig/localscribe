@@ -367,7 +367,11 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
 
         SettingsSection(title = "Feedback") {
             var feedbackText by remember { mutableStateOf("") }
-            val facts = DeviceFactsCollector.collect(context)
+            // Collected once, not per recomposition: this section recomposes on every keystroke
+            // in the box below, and collecting does file stats plus a totalRamGb() binder call.
+            // The cost of holding it is a failure recorded while Settings is already open not
+            // appearing until the screen is revisited, which is a fair trade.
+            val facts = remember(context) { DeviceFactsCollector.collect(context) }
             val reportBody = FeedbackReport.body(facts, feedbackText)
 
             Text(
