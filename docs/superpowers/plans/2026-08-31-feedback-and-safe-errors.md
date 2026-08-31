@@ -182,10 +182,21 @@ class UserFacingException(message: String) : Exception(message), UserFacingMessa
 package dev.chaseallbright.localscribe.domain
 
 /** Where a failure happened, carrying the copy and the short code shown in its place. */
-enum class FailureContext(val code: String, val generic: String) {
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+import javax.net.ssl.SSLException
+
+enum class FailureContext(
+    val code: String,
+    val generic: String,
+    /** Appended for a genuine connectivity failure; null where none is plausible. */
+    val offlineHint: String? = null
+) {
     DICTATION("E-DICT", "Dictation failed. Nothing was inserted."),
     EXPORT("E-EXPORT", "Export failed."),
     IMPORT("E-IMPORT", "Import failed."),
+    DOWNLOAD("E-DOWNLOAD", "Download failed.", "Check your connection."),
 }
 
 /**
