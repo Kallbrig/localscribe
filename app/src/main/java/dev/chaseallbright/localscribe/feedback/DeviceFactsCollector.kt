@@ -15,6 +15,17 @@ import dev.chaseallbright.localscribe.settings.AppPreferences
  */
 object DeviceFactsCollector {
 
+    /**
+     * Installed RAM, resolved once per process.
+     *
+     * `totalRamGb()` is an ActivityManager binder call, and it is the only expensive thing here
+     * -- everything else is a preference read or a file stat. Caching it is what lets Settings
+     * re-collect on every recomposition, which in turn is what keeps a report from quoting a
+     * model that was downloaded or deleted a moment earlier on the same screen. RAM does not
+     * change under a running process, so there is nothing to invalidate.
+     */
+    @Volatile private var cachedRamGb: Double? = null
+
     fun collect(context: Context): DeviceFacts {
         val appContext = context.applicationContext
         val preferences = AppPreferences(appContext)
@@ -39,7 +50,8 @@ object DeviceFactsCollector {
             // "11.406238555908203 GB" in every report. One decimal is all the precision a
             // RAM figure carries. Kotlin's Double.toString is locale-independent, so this
             // avoids a comma decimal separator that String.format would introduce.
-            totalRamGb = kotlin.math.round(models.totalRamGb() * 10) / 10.0,
+            totalRamGb = cachedRamGb ?: (kotlin.math.round(models.totalRamGb() * 10) / 10.0)
+                .also { cachedRamGb = it },
             whisperTier = whisperTier.id,
             whisperDownloaded = models.isWhisperModelReady(whisperTier),
             cleanupTier = cleanupTier.id,

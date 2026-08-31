@@ -52,8 +52,8 @@ vocabulary and export still work there.
 
 Settings → **Feedback**. Write what happened and LocalScribe opens your browser at a pre-filled
 GitHub issue for you to review and submit. It attaches app and Android version, device model,
-processor details, which models you have, and the codes of any recent failures — and shows you
-that text in full first.
+processor and RAM details, which models you have and your cleanup style and recording limit, plus
+the codes of any recent failures — and shows you that text in full first.
 
 **No transcript text, vocabulary, or audio is ever attached.** The only free text in a report is
 what you type into the box yourself.

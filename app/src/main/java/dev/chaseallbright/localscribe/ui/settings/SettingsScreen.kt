@@ -31,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -360,16 +361,18 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         }
 
         SettingsSection(title = "Feedback") {
-            var feedbackText by remember { mutableStateOf("") }
-            // Not collected per recomposition: this section recomposes on every keystroke in
-            // the box below, and collecting does file stats plus a totalRamGb() binder call.
-            // But it IS keyed on every setting the report quotes, because all four are edited
-            // in sections directly above this one -- caching on context alone would have shown
-            // whatever they were when Settings opened. What remains stale is a failure recorded
-            // while this screen is already open, which is a fair trade.
-            val facts = remember(context, whisperTier, cleanupTier, cleanupMode, recordingLimit) {
-                DeviceFactsCollector.collect(context)
-            }
+            // Saveable, unlike everything else on this screen: the other state is re-read from
+            // preferences on recreation, but a half-written paragraph only exists here and a
+            // rotation would otherwise discard it.
+            var feedbackText by rememberSaveable { mutableStateOf("") }
+            // Collected fresh on every recomposition, deliberately. Everything this report
+            // quotes -- cleanup style, both model tiers, the recording limit, and whether each
+            // model is on disk -- is edited in sections directly above this one, so any cache
+            // keyed on a subset of them reports something the user just changed. Keying on all
+            // of them including download progress would re-collect on every progress tick.
+            // Instead the one expensive input, the totalRamGb() binder call, is cached inside
+            // DeviceFactsCollector, leaving preference reads and two file stats per keystroke.
+            val facts = DeviceFactsCollector.collect(context)
             val reportBody = FeedbackReport.body(facts, feedbackText)
 
             Text(

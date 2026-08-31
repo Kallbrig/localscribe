@@ -8,10 +8,10 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and s
 
 - **A Feedback section in Settings.** Write what happened, and LocalScribe opens your browser at
   a pre-filled GitHub issue for you to review and submit. It attaches your app and Android
-  version, device model, processor details, which models you have, and the codes of any recent
-  failures -- and it shows you that text in full before anything happens, so there are no
-  surprises. **No transcript text, vocabulary, or audio is ever attached**; the only free text is
-  what you type yourself. There is no account or database behind this: LocalScribe sends nothing,
+  version, device model, processor and RAM details, which models you have, your cleanup style and
+  recording limit, and the codes of any recent failures -- and it shows you that text in full
+  before anything happens, so there are no surprises. **No transcript text, vocabulary, or audio
+  is ever attached**; the only free text in a report is what you type yourself. There is no account or database behind this: LocalScribe sends nothing,
   your browser opens the page, and you press Submit. If you have no GitHub account, or no
   browser, "Copy report" puts the same text on your clipboard.
 - **A "Report this device" button** on the unsupported-processor notice, so people whose devices

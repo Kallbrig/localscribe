@@ -84,7 +84,7 @@ object FeedbackReport {
         val trimmed = userText.trim()
         if (trimmed.isEmpty()) return "_No description given._"
 
-        var candidate = trimmed.take(MAX_USER_TEXT)
+        var candidate = trimmed.takeChars(MAX_USER_TEXT)
         while (candidate.isNotEmpty()) {
             val marked = if (candidate.length < trimmed.length) {
                 candidate + "\n\n_(truncated)_"
@@ -93,7 +93,7 @@ object FeedbackReport {
             }
             val encodedLength = encode(marked + "\n\n" + diagnostics).length
             if (encodedLength + URL_OVERHEAD_RESERVE <= MAX_URL_LENGTH) return marked
-            candidate = candidate.take(candidate.length / 2)
+            candidate = candidate.takeChars(candidate.length / 2)
         }
         return "_(description too long to include)_"
     }
@@ -129,6 +129,17 @@ object FeedbackReport {
             "&body=" + encode(body) +
             "&labels=" + encode(label)
         return url.takeIf { it.length <= MAX_URL_LENGTH }
+    }
+
+    /**
+     * Like [take], but never cuts between the two halves of a surrogate pair. A lone surrogate
+     * survives to the URL as a literal "?" and renders as a tofu glyph -- harmless, but a
+     * pointless way to mangle the last emoji in a truncated report.
+     */
+    private fun String.takeChars(count: Int): String {
+        val cut = count.coerceIn(0, length)
+        val safe = if (cut > 0 && this[cut - 1].isHighSurrogate()) cut - 1 else cut
+        return take(safe)
     }
 
     private fun downloadState(downloaded: Boolean) = if (downloaded) "downloaded" else "not downloaded"

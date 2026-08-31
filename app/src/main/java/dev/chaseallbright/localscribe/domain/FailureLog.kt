@@ -26,5 +26,6 @@ object FailureLog {
     /** Newest first. */
     fun recent(): List<String> = synchronized(this) { entries.toList() }
 
+    /** Test seam: nothing in the app clears this, since it is already bounded and per-process. */
     fun clear() = synchronized(this) { entries.clear() }
 }
