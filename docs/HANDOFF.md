@@ -2,7 +2,7 @@
 
 _Last updated: 2026-08-31. Repo: https://github.com/Kallbrig/localscribe (public). Default branch `master`._
 
-**Stable: `v0.1.7`. In flight: `v0.2.0-beta.2`.** Unit suite: 161 tests, all passing.
+**Stable: `v0.1.7`. In flight: `v0.2.0-beta.3`.** Unit suite: 175 tests, all passing.
 
 Verified on a Galaxy S25 Ultra (Android 16, 8 cores, 11.4 GB RAM, arm64-v8a).
 
@@ -36,6 +36,64 @@ installed v0.1.1 or later. Back both up off that machine.
 ---
 
 ## What changed in this session
+
+### Old processors are refused, not crashed
+
+Both native modules compile with `-march=armv8.2-a+fp16+dotprod`. On a pre-2018 arm64 CPU that
+code does not run slowly — it executes an instruction the silicon does not implement and the
+kernel kills the process with **SIGILL**. `minSdk 28` gates on OS version, not CPU generation: a
+Pixel 2 has a 2017 Snapdragon 835 and runs Android 11, so it installed and died, silently, every
+launch. Android has no `<uses-feature>` for an ARM extension, and distribution is via
+GitHub/Obtainium rather than Play, so **runtime is the only place this could be caught**.
+
+- `CpuSupport.evaluate(primaryAbi, cpuinfo)` is pure — it takes the ABI and the *text* of
+  `/proc/cpuinfo` rather than reading either, so every branch of it is unit-tested.
+  `DeviceCpu` holds everything untestable: a static field read, a `/proc` read, and a cache.
+  Fourteen tests cover its five decision rules, including every fail-open path.
+- **The gates run before `System.loadLibrary`, not inside the bridges.** That call sits in each
+  bridge's `companion object` initializer, and `dlopen` runs `.init_array`, so the fault may
+  happen at load time rather than at first inference. Waiting until the bridge is touched would
+  be too late. Gates live at `startRecording()`, `ModelSession.prewarm()` and
+  `ModelSession.withModels()`.
+- **It fails open at every uncertain step.** A non-arm64 ABI, an unreadable `/proc/cpuinfo`, a
+  missing `Features` line, or a `Features` line with no tokens all return `Supported`. Only
+  positive evidence that `asimdhp` or `asimddp` is absent disables anything — a false negative
+  would kill dictation on hardware that works perfectly, which is strictly worse than the crash
+  being fixed.
+- Checks `asimdhp` (`+fp16`) and `asimddp` (`+dotprod`) but deliberately **not** `atomics`
+  (FEAT_LSE), which `armv8.2-a` also implies: every core with dot product necessarily has LSE, so
+  checking it adds no detection power and only adds a way to wrongly reject a device.
+- Intersects the feature sets across every reported core rather than taking the union — a thread
+  scheduled onto a weaker core would fault. Compares whole tokens, never substrings, because
+  `asimd`, `asimdhp`, `asimdrdm` and `asimddp` share prefixes.
+- **Never verified on real pre-2018 hardware**, and it will not be: no such device is available,
+  and none was attached at all. The unsupported path is exercised only by unit tests against
+  captured `Features` strings. What protects working devices is the fail-open design, not testing.
+
+Three further defects, the first two pre-existing and surfaced by this work, the third created by
+it. Without the first two the gate would have replaced a loud crash with a silent one:
+
+- **`DictationUiState.Error` was never rendered.** Three refusal paths (unsupported CPU, missing
+  permission, missing speech model) set an Error carrying the reason, but `OverlayContent` drew
+  Error identically to `Idle` and nothing read `.message`. The user tapped the mic bubble and
+  nothing happened. It is now toasted, via the same collector pattern the cleanup fallback uses.
+- **Error was sticky, and then it conflated.** `clearFocus()` and `updateFocusFromEvent()` matched
+  exact states, so once state was Error neither could fire and the bubble stayed on screen over
+  every app. Both now treat Error as clearable. That alone was not enough: `StateFlow` does not
+  re-emit an equal value and the overlay window is `FLAG_NOT_FOCUSABLE`, so nothing cleared Error
+  between two taps on the same field and only the *first* refusal toasted. The collector now
+  returns the state to `Idle` once the message is delivered.
+- Settings hides the model sections on an unsupported device, which removed the app's only
+  `ModelDownloadManager.delete` call site. Downloading a model never touches native code, so such
+  a device can be holding up to ~2.3 GB from an earlier build, in app-private files no file
+  manager reaches — while the notice tells the user to keep the app for history and export. A
+  delete-only section covers that.
+
+**The overlay bubble is deliberately left alone on an unsupported device.** It still appears in
+every text field, and every tap produces the same toast. Suppressing it was considered and
+rejected: a bubble that silently never appears is indistinguishable from a broken accessibility
+service, and the toast is the thing that makes the failure legible. Raised in final review as a
+possible omission, so it is recorded here as a decision.
 
 ### The capture buffer is bounded
 
@@ -264,6 +322,41 @@ grep -rho 'tests="[0-9]*"' app/build/test-results/testDebugUnitTest/*.xml | grep
 
 ---
 
+## How the CPU gate was built
+
+Same shape as the recording limit: **spec → plan → task-by-task execution, with review after every
+task**, reviewers told not to trust the implementer's report and to re-derive every claim.
+
+| Stage | Artefact |
+|---|---|
+| Design, agreed before any code | [`docs/superpowers/specs/2026-08-31-cpu-support-gate-design.md`](superpowers/specs/2026-08-31-cpu-support-gate-design.md) |
+| Six tasks, TDD, exact code per step | [`docs/superpowers/plans/2026-08-31-cpu-support-gate.md`](superpowers/plans/2026-08-31-cpu-support-gate.md) |
+
+Four findings came from process rather than luck, and three were defects in the *spec*, not the
+code — worth knowing, because the plan was followed faithfully and would have shipped all of them:
+
+- **The empty-`Features` rule was backwards.** The spec asserted that a `Features` line with no
+  tokens was a real answer from the kernel and therefore evidence of an old CPU. It is not: `fp`
+  and `asimd` are architecturally mandatory on every ARMv8-A core, so a real arm64 kernel never
+  emits one. An empty list means redacted or synthesised procfs — a hardened ROM, a container — and
+  the original rule would have **permanently disabled dictation on working hardware**, the exact
+  failure the whole fail-open design exists to prevent.
+- **Splitting feature tokens on space and tab alone** leaned fail-closed in the one file whose
+  stated invariant is fail-open. Now any whitespace.
+- **Only the first refusal ever toasted.** Caught by tracing `StateFlow` conflation against the
+  overlay's `FLAG_NOT_FOCUSABLE` window — two facts in different files that only bite together.
+- **Hiding the Settings model sections stranded up to ~2.3 GB** by removing the app's only delete
+  control, on precisely the devices being told to keep the app installed.
+
+A fifth was caught during *planning*, before any code: wrapping the onboarding Models section in a
+visibility check would have moved `whisperState` out of scope for the "You're all set" gate further
+down the file. The four `val`s are hoisted for that reason, and the comment says so.
+
+Reviewers also correctly declined to flag several things — that `check()` in `withModels` is right
+because the gate above makes it genuinely unreachable, that the main-thread `/proc/cpuinfo` read is
+a sub-millisecond synthetic-file read worth leaving alone, and that the notice needs no extra
+TalkBack labelling because it contains no interactive element.
+
 ## Left undone
 
 Highest value first.
@@ -277,6 +370,13 @@ Highest value first.
   deterministic path now, but the other three fall to the same rules branch, which varies only by
   filler stripping and a trailing full stop. Fix with per-mode deterministic transforms, or tell the
   user in Settings that three of the four styles need the model.
+- **Dual library variants, to actually run on pre-2018 arm64.** The CPU gate makes those devices
+  fail honestly; only this makes them work. whisper.cpp's own Android example ships the pattern:
+  build a baseline arm64 library alongside the armv8.2 one and pick at load time. Sized **M**, and
+  the blocker is not the code — it is that **the baseline path cannot be verified without a
+  pre-2018 device**, so it would ship untested. It also roughly doubles an already ~8-minute
+  native build and the APK's native payload. Worth doing only if someone reports owning such a
+  device, or one can be borrowed.
 - **No instrumented tests on the riskiest code.** The three accessibility insertion tiers, focus
   tracking, and the JNI boundary have none. Nor do the new Compose surfaces: history interactions,
   delete confirmations, clipboard/share intents, the backup agent's `onFullBackup`. The pure logic
@@ -366,12 +466,10 @@ Highest value first.
 
 ## Concerns
 
-- **ARMv8.2 requirement versus `minSdk 28`.** Native modules are compiled for
-  `armv8.2-a+fp16+dotprod` (roughly 2018 CPUs onward). On an older arm64 device the app does not run
-  slowly — it **crashes with SIGILL**. `minSdk 28` does not close this: a Pixel 2 has a 2017 CPU and
-  runs Android 11, so it would install and then crash. Fixes are a runtime CPU feature check that
-  fails gracefully (XS–S), or whisper.cpp's approach of two library variants chosen at load time
-  (M). Unaddressed.
+- **Pre-ARMv8.2 hardware still cannot run LocalScribe** — it is now told so instead of crashing. The
+  gate is a detection, not a port: dictation genuinely does not work on those devices, and the
+  only fix that would change that is two library variants (see Left undone). Note also that the
+  gate's own unsupported path has never executed on real hardware.
 - **A debug-signed build may still be on the test device.** It cannot be updated over by v0.1.1 or
   later; it must be uninstalled first, which wipes local transcript history. One-time cost.
 - **`onTrimMemory` is inert on Android 14+.** The platform stopped delivering every level this

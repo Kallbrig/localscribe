@@ -55,6 +55,8 @@ import dev.chaseallbright.localscribe.models.ModelSpec
 import dev.chaseallbright.localscribe.models.WhisperModelTier
 import java.io.File
 import dev.chaseallbright.localscribe.permissions.PermissionsState
+import dev.chaseallbright.localscribe.platform.CpuSupport
+import dev.chaseallbright.localscribe.platform.DeviceCpu
 import dev.chaseallbright.localscribe.settings.AppPreferences
 import dev.chaseallbright.localscribe.transfer.ArchiveIo
 import dev.chaseallbright.localscribe.transfer.TranscriptArchive
@@ -62,6 +64,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import dev.chaseallbright.localscribe.ui.common.BackupChoicesSection
 import dev.chaseallbright.localscribe.ui.common.PermissionRow
+import dev.chaseallbright.localscribe.ui.common.UnsupportedDeviceNotice
 
 @Composable
 fun SettingsScreen(modifier: Modifier = Modifier) {
@@ -172,6 +175,11 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     ) {
         Text(text = "Settings", style = MaterialTheme.typography.headlineMedium)
 
+        val cpuSupport = DeviceCpu.support
+        if (cpuSupport is CpuSupport.Unsupported) {
+            UnsupportedDeviceNotice(cpuSupport)
+        }
+
         SettingsSection(title = "Cleanup style") {
             CleanupMode.entries.forEach { mode ->
                 RadioOptionRow(
@@ -226,40 +234,77 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             )
         }
 
-        SettingsSection(title = "Speech model") {
-            WhisperModelTier.entries.forEach { tier ->
-                ModelRow(
-                    spec = tier,
-                    file = modelManager.speechModelFile(tier),
-                    selected = whisperTier == tier,
-                    downloadStates = downloadStates,
-                    onSelect = {
-                        whisperTier = tier
-                        preferences.whisperTier = tier
-                        ModelSession.invalidate()
-                    }
-                )
+        // See OnboardingScreen. These two are hidden, while Cleanup style and Recording limit
+        // above are left alone, because the line is cost rather than usefulness: a preference
+        // that configures a dictation which can never happen is merely inert, whereas offering
+        // a gigabyte download that can never pay off actively wastes the user's data and disk.
+        if (cpuSupport.isSupported) {
+            SettingsSection(title = "Speech model") {
+                WhisperModelTier.entries.forEach { tier ->
+                    ModelRow(
+                        spec = tier,
+                        file = modelManager.speechModelFile(tier),
+                        selected = whisperTier == tier,
+                        downloadStates = downloadStates,
+                        onSelect = {
+                            whisperTier = tier
+                            preferences.whisperTier = tier
+                            ModelSession.invalidate()
+                        }
+                    )
+                }
             }
-        }
 
-        SettingsSection(title = "Cleanup model") {
-            Text(
-                text = "Optional. Without one, transcripts get basic rule-based cleanup.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            CleanupModelTier.entries.forEach { tier ->
-                ModelRow(
-                    spec = tier,
-                    file = modelManager.cleanupModelFile(tier),
-                    selected = cleanupTier == tier,
-                    downloadStates = downloadStates,
-                    onSelect = {
-                        cleanupTier = tier
-                        preferences.cleanupTier = tier
-                        ModelSession.invalidate()
-                    }
+            SettingsSection(title = "Cleanup model") {
+                Text(
+                    text = "Optional. Without one, transcripts get basic rule-based cleanup.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                CleanupModelTier.entries.forEach { tier ->
+                    ModelRow(
+                        spec = tier,
+                        file = modelManager.cleanupModelFile(tier),
+                        selected = cleanupTier == tier,
+                        downloadStates = downloadStates,
+                        onSelect = {
+                            cleanupTier = tier
+                            preferences.cleanupTier = tier
+                            ModelSession.invalidate()
+                        }
+                    )
+                }
+            }
+        } else {
+            // Downloading a model never touches native code, so a device that can never run one
+            // may still be holding up to ~2.3GB of them from an earlier build -- and hiding the
+            // sections above would otherwise take the app's only Delete button with them. The
+            // files are app-private, so nothing outside LocalScribe can reclaim the space, and
+            // Android's "Clear storage" would take the transcript history too.
+            val downloaded: List<Pair<ModelSpec, File>> =
+                (WhisperModelTier.entries.map { tier ->
+                    (tier as ModelSpec) to modelManager.speechModelFile(tier)
+                } + CleanupModelTier.entries.map { tier ->
+                    (tier as ModelSpec) to modelManager.cleanupModelFile(tier)
+                }).filter { (_, file) -> file.isFile }
+
+            if (downloaded.isNotEmpty()) {
+                SettingsSection(title = "Downloaded models") {
+                    val totalMb = downloaded.sumOf { (_, file) -> file.length() } / (1024 * 1024)
+                    Text(
+                        text = "${totalMb}MB was downloaded before LocalScribe could tell this " +
+                            "processor was unable to run it. It can only be removed.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    TextButton(
+                        onClick = {
+                            downloaded.forEach { (spec, file) ->
+                                ModelDownloadManager.delete(spec, file)
+                            }
+                        }
+                    ) { Text("Delete downloaded models") }
+                }
             }
         }
 

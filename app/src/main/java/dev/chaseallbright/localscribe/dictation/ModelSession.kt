@@ -7,6 +7,8 @@ import dev.chaseallbright.localscribe.bridge.WhisperBridge
 import dev.chaseallbright.localscribe.domain.AutoCleaner
 import dev.chaseallbright.localscribe.models.ModelManager
 import dev.chaseallbright.localscribe.models.RamTier
+import dev.chaseallbright.localscribe.platform.CpuSupport
+import dev.chaseallbright.localscribe.platform.DeviceCpu
 import dev.chaseallbright.localscribe.settings.AppPreferences
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -106,6 +108,10 @@ object ModelSession {
      * cleanup model must never block whisper prewarm, so that gate lives there, not here.
      */
     fun prewarm(context: Context) {
+        // Reached from focus events, which never pass through the dictation service's gate.
+        // Loading whisper means System.loadLibrary, and on a pre-ARMv8.2 CPU that may fault
+        // during dlopen's .init_array before any inference is even requested.
+        if (!DeviceCpu.isSupported) return
         val appContext = context.applicationContext
         scope.launch {
             val preferences = AppPreferences(appContext)
@@ -131,7 +137,12 @@ object ModelSession {
     suspend fun <T> withModels(
         context: Context,
         block: suspend (LoadedModels<WhisperBridge, AutoCleaner>) -> T
-    ): T = engineFor(context).withModels(block)
+    ): T {
+        // Defence in depth. Today's only caller is already behind the service's gate, but this
+        // is the documented dictation entry point and must not become a way around it.
+        check(DeviceCpu.isSupported) { CpuSupport.UNSUPPORTED_HEADLINE }
+        return engineFor(context).withModels(block)
+    }
 
     fun onFocusLost() = engine?.onFocusLost() ?: Unit
 

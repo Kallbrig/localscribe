@@ -27,6 +27,12 @@ the two.
 
 ## Install
 
+**Requires a 64-bit ARM processor with ARMv8.2 support -- roughly 2018 and later.** The speech
+and cleanup engines are compiled for it, so older hardware cannot run them at any speed. Android
+installs by OS version rather than processor, so such a device can still install LocalScribe; it
+detects the processor at startup and says it cannot run, rather than crashing. History,
+vocabulary and export still work there.
+
 1. Download the APK from [Releases](../../releases).
 2. Install it (you'll need to allow installs from this source).
 3. Open LocalScribe and grant the four permissions it asks for, in order:

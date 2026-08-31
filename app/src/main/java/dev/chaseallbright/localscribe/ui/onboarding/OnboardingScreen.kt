@@ -33,9 +33,12 @@ import dev.chaseallbright.localscribe.models.ModelDownloadManager
 import dev.chaseallbright.localscribe.models.ModelDownloadState
 import dev.chaseallbright.localscribe.models.ModelManager
 import dev.chaseallbright.localscribe.permissions.PermissionsState
+import dev.chaseallbright.localscribe.platform.CpuSupport
+import dev.chaseallbright.localscribe.platform.DeviceCpu
 import dev.chaseallbright.localscribe.settings.AppPreferences
 import dev.chaseallbright.localscribe.ui.common.BackupChoicesSection
 import dev.chaseallbright.localscribe.ui.common.PermissionRow
+import dev.chaseallbright.localscribe.ui.common.UnsupportedDeviceNotice
 
 @Composable
 fun OnboardingScreen(modifier: Modifier = Modifier) {
@@ -87,6 +90,11 @@ fun OnboardingScreen(modifier: Modifier = Modifier) {
             style = MaterialTheme.typography.bodyMedium
         )
 
+        val cpuSupport = DeviceCpu.support
+        if (cpuSupport is CpuSupport.Unsupported) {
+            UnsupportedDeviceNotice(cpuSupport)
+        }
+
         PermissionRow(
             granted = status.recordAudioGranted,
             title = "Microphone",
@@ -128,47 +136,55 @@ fun OnboardingScreen(modifier: Modifier = Modifier) {
             )
         }
 
-        HorizontalDivider()
-
-        Text(text = "Models", style = MaterialTheme.typography.titleMedium)
-        Text(
-            text = "Downloaded once and then used entirely offline. Nothing you dictate is ever uploaded.",
-            style = MaterialTheme.typography.bodyMedium
-        )
-
+        // whisperState is read further down by the "You're all set" gate, so it and the file it
+        // derives from must not live inside the conditional block below.
         val whisperFile = modelManager.speechModelFile(whisperTier)
         val whisperState = downloadStates[whisperTier.id]
             ?: if (whisperFile.isFile) ModelDownloadState.Downloaded else ModelDownloadState.Absent
 
-        ModelSetupRow(
-            spec = whisperTier,
-            file = whisperFile,
-            state = whisperState,
-            required = true
-        )
+        // A model exists only to serve a dictation, so on an unsupported CPU every control in
+        // this section is dead. Hidden rather than disabled: the notice above already explains
+        // why, and greying these out would mean threading an enabled flag through
+        // ModelSetupRow purely to render something that can never be used.
+        if (cpuSupport.isSupported) {
+            HorizontalDivider()
 
-        val cleanupFile = modelManager.cleanupModelFile(cleanupTier)
-        val cleanupState = downloadStates[cleanupTier.id]
-            ?: if (cleanupFile.isFile) ModelDownloadState.Downloaded else ModelDownloadState.Absent
+            Text(text = "Models", style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = "Downloaded once and then used entirely offline. Nothing you dictate is ever uploaded.",
+                style = MaterialTheme.typography.bodyMedium
+            )
 
-        ModelSetupRow(
-            spec = cleanupTier,
-            file = cleanupFile,
-            state = cleanupState,
-            required = false
-        )
-        Text(
-            text = "Without the cleanup model, transcripts still work -- they get basic " +
-                "rule-based tidying instead of AI cleanup.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+            ModelSetupRow(
+                spec = whisperTier,
+                file = whisperFile,
+                state = whisperState,
+                required = true
+            )
 
-        Text(
-            text = "Other models and cleanup styles are in Settings.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+            val cleanupFile = modelManager.cleanupModelFile(cleanupTier)
+            val cleanupState = downloadStates[cleanupTier.id]
+                ?: if (cleanupFile.isFile) ModelDownloadState.Downloaded else ModelDownloadState.Absent
+
+            ModelSetupRow(
+                spec = cleanupTier,
+                file = cleanupFile,
+                state = cleanupState,
+                required = false
+            )
+            Text(
+                text = "Without the cleanup model, transcripts still work -- they get basic " +
+                    "rule-based tidying instead of AI cleanup.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Text(
+                text = "Other models and cleanup styles are in Settings.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
 
         HorizontalDivider()
 
@@ -185,20 +201,24 @@ fun OnboardingScreen(modifier: Modifier = Modifier) {
 
         // Deliberately gated on the speech model too. Saying "all set" while no model is on
         // disk is what sent first-run users into a failed dictation with nothing having
-        // pointed them anywhere.
+        // pointed them anywhere. Gated on the CPU for the same reason, one step earlier: on a
+        // device that can never dictate, neither message is true, and the second one points at
+        // a Models section that is no longer rendered.
         val speechReady = whisperState is ModelDownloadState.Downloaded
-        if (status.allGranted && speechReady) {
-            Text(
-                text = "You're all set. Focus any text field and tap the mic bubble to dictate.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.primary
-            )
-        } else if (status.allGranted) {
-            Text(
-                text = "Permissions are done. Download the speech model above to start dictating.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.primary
-            )
+        if (cpuSupport.isSupported) {
+            if (status.allGranted && speechReady) {
+                Text(
+                    text = "You're all set. Focus any text field and tap the mic bubble to dictate.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            } else if (status.allGranted) {
+                Text(
+                    text = "Permissions are done. Download the speech model above to start dictating.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
         }
     }
 }
