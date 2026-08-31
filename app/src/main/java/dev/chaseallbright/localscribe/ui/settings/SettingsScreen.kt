@@ -18,17 +18,22 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -38,6 +43,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import android.widget.Toast
 import androidx.compose.runtime.rememberCoroutineScope
+import dev.chaseallbright.localscribe.audio.RecordingLimit
 import dev.chaseallbright.localscribe.backup.BackupSettings
 import dev.chaseallbright.localscribe.dictation.ModelSession
 import dev.chaseallbright.localscribe.domain.CleanupMode
@@ -52,6 +58,7 @@ import dev.chaseallbright.localscribe.permissions.PermissionsState
 import dev.chaseallbright.localscribe.settings.AppPreferences
 import dev.chaseallbright.localscribe.transfer.ArchiveIo
 import dev.chaseallbright.localscribe.transfer.TranscriptArchive
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import dev.chaseallbright.localscribe.ui.common.BackupChoicesSection
 import dev.chaseallbright.localscribe.ui.common.PermissionRow
@@ -102,6 +109,13 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     var whisperTier by remember { mutableStateOf(preferences.whisperTier) }
     var cleanupTier by remember { mutableStateOf(preferences.cleanupTier) }
     var cleanupMode by remember { mutableStateOf(preferences.cleanupMode) }
+    var recordingLimit by remember { mutableStateOf(preferences.recordingLimit) }
+    // Tracks the thumb during a drag. Kept separate from `recordingLimit` so a drag past a
+    // confirmed notch does not persist anything until the drag ends.
+    var limitSliderIndex by remember {
+        mutableFloatStateOf(RecordingLimit.entries.indexOf(preferences.recordingLimit).toFloat())
+    }
+    var pendingLimit by remember { mutableStateOf<RecordingLimit?>(null) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -114,6 +128,40 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     val requestNotifications = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { permissionStatus = PermissionsState.current(context) }
+
+    pendingLimit?.let { limit ->
+        // Measured transcription runs at roughly 30x realtime, so a limit's worth of audio
+        // costs about (minutes * 60 / 30) seconds once the user stops.
+        val transcribeSeconds = limit.minutes * 2
+        val revert = {
+            pendingLimit = null
+            limitSliderIndex = RecordingLimit.entries.indexOf(recordingLimit).toFloat()
+        }
+        AlertDialog(
+            onDismissRequest = revert,
+            title = { Text("Allow recordings up to ${limit.displayName}?") },
+            text = {
+                Text(
+                    "A recording this long takes much longer to process — roughly " +
+                        "$transcribeSeconds seconds of transcription after you stop, against " +
+                        "about 2 seconds for a typical dictation.\n\n" +
+                        "Cleanup can also only see about 2.5 minutes of speech at once, so " +
+                        "anything past that is transcribed but only lightly cleaned up.\n\n" +
+                        "Recording still stops on its own at the limit."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    recordingLimit = limit
+                    preferences.recordingLimit = limit
+                    pendingLimit = null
+                }) { Text("Use ${limit.displayName}") }
+            },
+            dismissButton = {
+                TextButton(onClick = revert) { Text("Cancel") }
+            }
+        )
+    }
 
     Column(
         modifier = modifier
@@ -136,6 +184,46 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                     }
                 )
             }
+        }
+
+        SettingsSection(title = "Recording limit") {
+            Text(
+                text = "Recording stops on its own at this length. Longer recordings use more " +
+                    "memory and take longer to process.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Slider(
+                value = limitSliderIndex,
+                onValueChange = { limitSliderIndex = it },
+                // Fires on release, not on every pixel of the drag -- otherwise dragging from
+                // 1 to 10 would trip the confirmation as the thumb passed 5.
+                onValueChangeFinished = {
+                    val picked = RecordingLimit.entries[limitSliderIndex.roundToInt()]
+                    if (picked.requiresConfirmation) {
+                        pendingLimit = picked
+                    } else {
+                        recordingLimit = picked
+                        preferences.recordingLimit = picked
+                    }
+                },
+                valueRange = 0f..(RecordingLimit.entries.size - 1).toFloat(),
+                steps = RecordingLimit.entries.size - 2,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    // The caption below is a separate node, so without this a screen reader
+                    // announces the raw slider index instead of the duration it selects.
+                    .semantics {
+                        contentDescription = "Recording limit"
+                        stateDescription =
+                            RecordingLimit.entries[limitSliderIndex.roundToInt()].displayName
+                    }
+            )
+            Text(
+                text = "Stops automatically after " +
+                    "${RecordingLimit.entries[limitSliderIndex.roundToInt()].displayName}.",
+                style = MaterialTheme.typography.bodyMedium
+            )
         }
 
         SettingsSection(title = "Speech model") {

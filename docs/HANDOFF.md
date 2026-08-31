@@ -2,7 +2,7 @@
 
 _Last updated: 2026-08-27. Repo: https://github.com/Kallbrig/localscribe (public). Default branch `master`._
 
-**Stable: `v0.1.7`. In flight: `v0.2.0-beta.1`.** Unit suite: 135 tests, all passing.
+**Stable: `v0.1.7`. In flight: `v0.2.0-beta.1`.** Unit suite: 161 tests, all passing.
 
 Verified on a Galaxy S25 Ultra (Android 16, 8 cores, 11.4 GB RAM, arm64-v8a).
 
@@ -36,6 +36,38 @@ installed v0.1.1 or later. Back both up off that machine.
 ---
 
 ## What changed in this session
+
+### The capture buffer is bounded
+
+`AudioRecorder` buffered 16 kHz PCM with no limit and no spill, at roughly **5×** the recorded
+bytes in peak heap — a `ByteArrayOutputStream` that doubles on growth, plus `toByteArray()`'s copy,
+plus a `FloatArray` at twice the byte width. Around 20–40 minutes that exhausts the Java heap as an
+`OutOfMemoryError`, killing the process and the foreground service with it, and the user loses the
+dictation with no message. The realistic long recording is not a long dictation; it is one that was
+never stopped.
+
+- The budget is enforced **on the write path**, not by a timer. A timer bounds elapsed time rather
+  than memory and leaves the buffer unbounded whenever it fails to fire; `RecordingBudget.accept()`
+  makes overflow unrepresentable.
+- Hitting the limit **finalizes the dictation** rather than discarding it — the same reasoning that
+  made `startRecording()` refuse to open the microphone without a speech model. The notification
+  says so, rather than appearing to stop on a whim.
+- The limit callback is tagged with a **recording generation**. A capture thread orphaned by
+  `stopInternal()`'s one-second join can post long after its own recording ended, by which point a
+  bare `isRecording` check would be true again for an unrelated dictation and would finalize it
+  early. The generation check drops the stale callback.
+- Chunked storage plus a draining decode cut peak from 5× to **3×**: 2 minutes now costs ~11 MB
+  where it cost ~19 MB, and 10 minutes ~58 MB where it cost ~96 MB. That is what makes the
+  10-minute notch defensible rather than merely survivable.
+- **`stop()` never reset the buffer** — only `cancel()` and `start()` did — so PCM stayed resident
+  through the whole pipeline and beyond, until the next recording. The privacy table's
+  "`buffer.reset()` on stop and cancel" was true of cancel only. Draining now empties it, and the
+  claim is true as written.
+- The limit is a setting: notches at 1/2/3/5/10 minutes, defaulting to 2, with a confirmation
+  dialog at 5 and above that names both costs — the processing time and the fact that cleanup only
+  sees about 2.5 minutes of speech at once.
+- No disk spill. `README.md` promises "no audio is ever retained"; a spill file survives a crash and
+  is the same class of leak `LocalScribeBackupAgent` was written to close.
 
 ### Release signing, and a pipeline that had never worked
 
@@ -199,9 +231,6 @@ Highest value first.
   deterministic path now, but the other three fall to the same rules branch, which varies only by
   filler stripping and a trailing full stop. Fix with per-mode deterministic transforms, or tell the
   user in Settings that three of the four styles need the model.
-- **PCM buffer cap.** `AudioRecorder` buffers unbounded 16 kHz PCM in memory with no limit or disk
-  spill — a quiet OOM risk on a long dictation, worse now that up to ~1.5 GB of models can be
-  resident.
 - **No instrumented tests on the riskiest code.** The three accessibility insertion tiers, focus
   tracking, and the JNI boundary have none. Nor do the new Compose surfaces: history interactions,
   delete confirmations, clipboard/share intents, the backup agent's `onFullBackup`. The pure logic
@@ -258,8 +287,9 @@ Highest value first.
   management.
 - **The case for streaming transcription has weakened.** It was on the list when transcription was
   the bottleneck; at ~500 ms it no longer is, and whisper pads every clip to a 30-second window
-  internally, so chunking would not help short dictations at all. The memory argument for a buffer
-  cap still stands on its own.
+  internally, so chunking would not help short dictations at all. The memory argument that also
+  favoured it has since been answered directly by the recording limit, so nothing is left pointing
+  this way.
 
 ---
 
@@ -299,7 +329,7 @@ Verified against the code, not assumed.
 |---|---|
 | No telemetry or analytics | Zero third-party SDKs; dependencies are androidx/kotlin only |
 | Nothing dictated leaves the device | One network call site (`ModelDownloader`), one host (`huggingface.co`), model files only |
-| Audio never retained | Buffered in memory, `buffer.reset()` on stop and cancel; never written to disk |
+| Audio never retained | Buffered in memory, capped by the recording limit, drained on stop and cleared on cancel; never written to disk |
 | Nothing sensitive logged | No transcript text anywhere; perf logs are timings and character counts |
 | Inference is local | whisper.cpp and llama.cpp in-process over JNI |
 | Backup | **Was leaking transcripts to Drive**; off by default and per-category since v0.1.4 |

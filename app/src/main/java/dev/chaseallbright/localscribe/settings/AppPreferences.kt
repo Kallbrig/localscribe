@@ -1,6 +1,7 @@
 package dev.chaseallbright.localscribe.settings
 
 import android.content.Context
+import dev.chaseallbright.localscribe.audio.RecordingLimit
 import dev.chaseallbright.localscribe.domain.CleanupMode
 import dev.chaseallbright.localscribe.models.CleanupModelTier
 import dev.chaseallbright.localscribe.models.ModelManager
@@ -32,10 +33,17 @@ class AppPreferences(context: Context) {
             ?: CleanupMode.STANDARD
         set(value) = prefs.edit().putString(KEY_CLEANUP_MODE, value.name).apply()
 
+    var recordingLimit: RecordingLimit
+        get() = prefs.getString(KEY_RECORDING_LIMIT, null)
+            ?.let { id -> RecordingLimit.entries.find { it.id == id } }
+            ?: RecordingLimit.DEFAULT
+        set(value) = prefs.edit().putString(KEY_RECORDING_LIMIT, value.id).apply()
+
     private companion object {
         const val PREFS_NAME = "localscribe_settings"
         const val KEY_WHISPER_TIER = "whisper_tier"
         const val KEY_CLEANUP_TIER = "cleanup_tier"
         const val KEY_CLEANUP_MODE = "cleanup_mode"
+        const val KEY_RECORDING_LIMIT = "recording_limit"
     }
 }
