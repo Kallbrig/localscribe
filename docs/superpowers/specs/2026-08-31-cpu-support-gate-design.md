@@ -157,7 +157,14 @@ drift — the same reasoning that made `BackupChoicesSection` shared between onb
 It names what is wrong in plain language (this device's processor lacks features the speech engine
 was built for), states the consequence (dictation cannot run; history, vocabulary and export still
 work), and lists the missing feature tokens for anyone diagnosing it. Shown at the top of
-`OnboardingScreen` and `SettingsScreen`. Model download controls are disabled while it is showing.
+`OnboardingScreen` and `SettingsScreen`.
+
+The **Models section is hidden** on both screens while it shows, rather than disabled. A model
+exists only to serve a dictation; if dictation cannot run, every control in that section is dead.
+The two screens render models through different composables (`ModelSetupRow` in onboarding,
+`ModelRow` in Settings), so greying them out would mean threading an `enabled` flag through both
+plus the tier pickers and the selection dialog — churn spent rendering something the user can never
+use, when the notice directly above already explains why it is gone.
 
 On a supported device — every device that runs the app today — nothing renders and nothing changes.
 
