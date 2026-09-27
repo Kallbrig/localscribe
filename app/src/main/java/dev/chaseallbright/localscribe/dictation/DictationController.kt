@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.getAndUpdate
 
 sealed interface DictationUiState {
     /** No editable field focused anywhere -- overlay fully hidden. */
@@ -36,10 +37,21 @@ object DictationController {
     private val _transcriptReady = MutableSharedFlow<Transcript>(extraBufferCapacity = 1)
     val transcriptReady: SharedFlow<Transcript> = _transcriptReady.asSharedFlow()
 
+    private val wake = BubbleWake()
+
+    /** Bumps whenever the bubble's collapse timer should restart. See [BubbleWake]. */
+    val bubbleWake: StateFlow<Int> = wake.count
+
     fun setState(newState: DictationUiState) {
-        Log.d("DictationController", "state ${_state.value} -> $newState")
-        _state.value = newState
+        // Atomic: setState is called from both the main thread and Dispatchers.Default, and the
+        // wake rule must see the transition that actually happened.
+        val previous = _state.getAndUpdate { newState }
+        Log.d("DictationController", "state $previous -> $newState")
+        wake.onTransition(previous, newState)
     }
+
+    /** An editable field gained focus -- including a second field while already Idle. */
+    fun onFieldFocused() = wake.onFieldFocused()
 
     suspend fun publishTranscript(transcript: Transcript) {
         _transcriptReady.emit(transcript)

@@ -5,6 +5,22 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import dev.chaseallbright.localscribe.ui.overlay.BubbleColor
+import dev.chaseallbright.localscribe.ui.overlay.BubbleFace
+import dev.chaseallbright.localscribe.ui.overlay.BubbleOpacity
+import dev.chaseallbright.localscribe.ui.overlay.BubbleStyle
+import dev.chaseallbright.localscribe.ui.overlay.CollapseDelay
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -254,6 +270,10 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             )
         }
 
+        SettingsSection(title = "Mic bubble") {
+            MicBubbleSettings(preferences)
+        }
+
         // See OnboardingScreen. These two are hidden, while Cleanup style and Recording limit
         // above are left alone, because the line is cost rather than usefulness: a preference
         // that configures a dictation which can never happen is merely inert, whereas offering
@@ -464,6 +484,133 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                     actionLabel = "Allow",
                     onClick = { requestNotifications.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MicBubbleSettings(preferences: AppPreferences) {
+    var delayIndex by remember {
+        mutableFloatStateOf(CollapseDelay.entries.indexOf(preferences.collapseDelay).toFloat())
+    }
+    var opacityIndex by remember {
+        mutableFloatStateOf(BubbleOpacity.indexOf(preferences.bubbleOpacityPercent).toFloat())
+    }
+    var color by remember { mutableStateOf(preferences.bubbleColor) }
+    val delay = CollapseDelay.entries[delayIndex.roundToInt()]
+    val opacityPercent = BubbleOpacity.percentAt(opacityIndex.roundToInt())
+    val style = BubbleStyle(color, opacityPercent)
+
+    // Live preview: the same composable the overlay draws, so the two cannot drift.
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(16.dp)
+                .graphicsLayer { alpha = BubbleOpacity.alphaOf(opacityPercent) }
+                .clearAndSetSemantics {
+                    contentDescription = "Preview: ${color.displayName} bubble at $opacityPercent% opacity"
+                },
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            BubbleFace(style = style, collapsed = false)
+            BubbleFace(style = style, collapsed = true)
+        }
+    }
+
+    Text(
+        text = "Shrinks to a dot when you have not used it for a while. Tap the dot to bring it " +
+            "back. Drag the bubble onto the X at the bottom of the screen to hide it until " +
+            "you tap into another text field.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+
+    Text(text = "Shrink after", style = MaterialTheme.typography.titleSmall)
+    Slider(
+        value = delayIndex,
+        onValueChange = { delayIndex = it },
+        onValueChangeFinished = { preferences.collapseDelay = CollapseDelay.entries[delayIndex.roundToInt()] },
+        valueRange = 0f..(CollapseDelay.entries.size - 1).toFloat(),
+        steps = CollapseDelay.entries.size - 2,
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics {
+                contentDescription = "Shrink the mic bubble after"
+                stateDescription = delay.displayName
+            }
+    )
+    Text(
+        text = if (delay == CollapseDelay.NEVER) "Never shrinks." else "Shrinks after: ${delay.displayName}.",
+        style = MaterialTheme.typography.bodyMedium
+    )
+
+    Text(text = "Opacity", style = MaterialTheme.typography.titleSmall)
+    Slider(
+        value = opacityIndex,
+        onValueChange = { opacityIndex = it },
+        // Read the slider state, not `opacityPercent`: that is captured at composition and can
+        // be a step behind if the finger lifts in the same frame as the last change.
+        onValueChangeFinished = {
+            preferences.bubbleOpacityPercent = BubbleOpacity.percentAt(opacityIndex.roundToInt())
+        },
+        valueRange = 0f..(BubbleOpacity.STEP_COUNT - 1).toFloat(),
+        steps = BubbleOpacity.STEP_COUNT - 2,
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics {
+                contentDescription = "Mic bubble opacity"
+                stateDescription = "$opacityPercent percent"
+            }
+    )
+    Text(text = "$opacityPercent%", style = MaterialTheme.typography.bodyMedium)
+
+    Text(text = "Color", style = MaterialTheme.typography.titleSmall)
+    Column(
+        modifier = Modifier.selectableGroup(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        BubbleColor.entries.chunked(5).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                row.forEach { swatch ->
+                    val selected = swatch == color
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(swatch.argb),
+                        // Every swatch gets an outline so white is visible on a light theme.
+                        border = BorderStroke(
+                            width = if (selected) 3.dp else 1.dp,
+                            color = if (selected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outline
+                        ),
+                        modifier = Modifier
+                            .size(44.dp)
+                            .selectable(
+                                selected = selected,
+                                role = Role.RadioButton,
+                                onClick = {
+                                    color = swatch
+                                    preferences.bubbleColor = swatch
+                                }
+                            )
+                            .semantics { contentDescription = swatch.displayName }
+                    ) {
+                        if (selected) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Filled.Check,
+                                    contentDescription = null,
+                                    tint = Color(swatch.contentArgb)
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
