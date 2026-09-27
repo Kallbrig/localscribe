@@ -77,4 +77,32 @@ class BubbleCollapseTest {
     fun `a release with nothing deferred leaves the bubble expanded`() {
         assertFalse(BubbleCollapse().after(Event.Wake, Event.DragStart, Event.DragEnd).collapsed)
     }
+
+    @Test
+    fun `a wake uses the configured delay as is`() {
+        val woken = BubbleCollapse().reduce(Event.Wake)
+        assertEquals(0L, woken.timerMillis(CollapseDelay.ZERO))
+        assertEquals(10_000L, woken.timerMillis(CollapseDelay.TEN))
+    }
+
+    @Test
+    fun `a tap on the dot gets a grace period so the bubble can be reached`() {
+        // At "Immediately" the expanded bubble would otherwise re-collapse before the user
+        // could tap it, and dictation would be unreachable.
+        val expanded = BubbleCollapse().reduce(Event.Expand)
+        assertEquals(BubbleCollapse.TAP_GRACE_MS, expanded.timerMillis(CollapseDelay.ZERO))
+        assertEquals(BubbleCollapse.TAP_GRACE_MS, expanded.timerMillis(CollapseDelay.ONE))
+        assertEquals(10_000L, expanded.timerMillis(CollapseDelay.TEN))
+    }
+
+    @Test
+    fun `a later wake drops the grace period`() {
+        val state = BubbleCollapse().after(Event.Expand, Event.Wake)
+        assertEquals(0L, state.timerMillis(CollapseDelay.ZERO))
+    }
+
+    @Test
+    fun `never has no timer even after a tap`() {
+        assertEquals(null, BubbleCollapse().reduce(Event.Expand).timerMillis(CollapseDelay.NEVER))
+    }
 }

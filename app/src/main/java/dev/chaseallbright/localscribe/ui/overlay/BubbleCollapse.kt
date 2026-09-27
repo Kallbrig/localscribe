@@ -15,7 +15,8 @@ data class BubbleCollapse(
     val collapsed: Boolean = false,
     val dragging: Boolean = false,
     val expiredDuringDrag: Boolean = false,
-    val generation: Int = 0
+    val generation: Int = 0,
+    val expandedByTap: Boolean = false
 ) {
     sealed interface Event {
         /** A text field gained focus, or a dictation finished. */
@@ -33,7 +34,8 @@ data class BubbleCollapse(
         Event.Wake, Event.Expand -> copy(
             collapsed = false,
             expiredDuringDrag = false,
-            generation = generation + 1
+            generation = generation + 1,
+            expandedByTap = event == Event.Expand
         )
         is Event.TimerExpired -> when {
             event.generation != generation -> this
@@ -46,5 +48,17 @@ data class BubbleCollapse(
             collapsed = collapsed || expiredDuringDrag,
             expiredDuringDrag = false
         )
+    }
+
+    /**
+     * How long the current timer should run, or null for no timer. After a tap on the dot the
+     * timer is never shorter than [TAP_GRACE_MS]: at the shortest settings the bubble would
+     * otherwise shrink back before the user could tap it, leaving dictation unreachable.
+     */
+    fun timerMillis(delay: CollapseDelay): Long? =
+        delay.millis?.let { if (expandedByTap) maxOf(it, TAP_GRACE_MS) else it }
+
+    companion object {
+        const val TAP_GRACE_MS = 3_000L
     }
 }

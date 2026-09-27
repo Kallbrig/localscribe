@@ -7,9 +7,15 @@ import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
 import android.os.IBinder
 import android.view.Gravity
+import android.view.View
 import android.view.WindowManager
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.core.app.NotificationCompat
@@ -21,6 +27,7 @@ import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.SavedStateRegistry
@@ -30,9 +37,31 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import dev.chaseallbright.localscribe.DICTATION_NOTIFICATION_CHANNEL_ID
 import dev.chaseallbright.localscribe.R
 import dev.chaseallbright.localscribe.dictation.DictationController
+import dev.chaseallbright.localscribe.dictation.DictationUiState
+import dev.chaseallbright.localscribe.settings.AppPreferences
+import dev.chaseallbright.localscribe.ui.overlay.BUBBLE_SIZE
+import dev.chaseallbright.localscribe.ui.overlay.BubbleCollapse
+import dev.chaseallbright.localscribe.ui.overlay.DISMISS_TARGET_SIZE
+import dev.chaseallbright.localscribe.ui.overlay.DOT_TOUCH_SIZE
+import dev.chaseallbright.localscribe.ui.overlay.DismissTarget
+import dev.chaseallbright.localscribe.ui.overlay.DismissZone
+import dev.chaseallbright.localscribe.ui.overlay.DragHandlers
 import dev.chaseallbright.localscribe.ui.overlay.OverlayContent
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
-/** Draggable idle bubble + recording/processing pill, hosted directly in a WindowManager overlay. */
+/**
+ * Draggable idle bubble + recording/processing pill, hosted directly in a WindowManager overlay.
+ * Also owns the bubble's collapse timer and the drag-to-dismiss target.
+ */
 class OverlayBubbleService :
     Service(),
     LifecycleOwner,
@@ -51,14 +80,41 @@ class OverlayBubbleService :
     private var composeView: ComposeView? = null
     private var layoutParams: WindowManager.LayoutParams? = null
 
+    private lateinit var preferences: AppPreferences
+    private var unobservePreferences: (() -> Unit)? = null
+    private val style by lazy { MutableStateFlow(preferences.bubbleStyle) }
+    private val collapseDelay by lazy { MutableStateFlow(preferences.collapseDelay) }
+    private val collapse = MutableStateFlow(BubbleCollapse())
+
+    /**
+     * True when the dot is what is actually on screen. The collapse state alone is not enough:
+     * a timer may expire during a recording, and the pill must not jump because of it.
+     */
+    private lateinit var showingDot: StateFlow<Boolean>
+
+    private var dismissView: ComposeView? = null
+    private val overDismissTarget = MutableStateFlow(false)
+    private var dragStartScreen = IntArray(2)
+    private var dragStartX = 0
+    private var dragStartY = 0
+
     override fun onCreate() {
         super.onCreate()
         savedStateRegistryController.performRestore(null)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+        preferences = AppPreferences(this)
+        unobservePreferences = preferences.observeBubbleSettings {
+            style.value = preferences.bubbleStyle
+            collapseDelay.value = preferences.collapseDelay
+        }
+        showingDot = combine(collapse, DictationController.state) { c, state ->
+            c.collapsed && (state == DictationUiState.Idle || state is DictationUiState.Error)
+        }.distinctUntilChanged().stateIn(lifecycleScope, SharingStarted.Eagerly, false)
         startForegroundWithNotification()
         addOverlayView()
+        startCollapseTimer()
     }
 
     private fun startForegroundWithNotification() {
@@ -81,6 +137,40 @@ class OverlayBubbleService :
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+
+    private fun startCollapseTimer() {
+        lifecycleScope.launch {
+            DictationController.bubbleWake.collect {
+                collapse.update { it.reduce(BubbleCollapse.Event.Wake) }
+            }
+        }
+        lifecycleScope.launch {
+            // collectLatest cancels the pending delay whenever the generation or the setting
+            // changes, and the generation check in the reducer drops anything that slips past.
+            combine(collapse, collapseDelay) { c, d -> c.generation to c.timerMillis(d) }
+                .distinctUntilChanged()
+                .collectLatest { (generation, millis) ->
+                    if (millis == null) return@collectLatest
+                    delay(millis)
+                    collapse.update { it.reduce(BubbleCollapse.Event.TimerExpired(generation)) }
+                }
+        }
+        lifecycleScope.launch {
+            // The window is WRAP_CONTENT, so it shrinks from its top-left corner. Shift it by half
+            // the size difference so the dot sits where the bubble's centre was, and back again.
+            val offsetPx = ((BUBBLE_SIZE - DOT_TOUCH_SIZE).value * resources.displayMetrics.density / 2).toInt()
+            var wasDot = showingDot.value
+            showingDot.collect { dot ->
+                if (dot == wasDot) return@collect
+                wasDot = dot
+                val params = layoutParams ?: return@collect
+                val shift = if (dot) offsetPx else -offsetPx
+                params.x += shift
+                params.y += shift
+                composeView?.let { runCatching { windowManager?.updateViewLayout(it, params) } }
+            }
+        }
+    }
 
     private fun addOverlayView() {
         val wm = getSystemService(WINDOW_SERVICE) as WindowManager
@@ -105,27 +195,135 @@ class OverlayBubbleService :
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
             setContent {
                 val state by DictationController.state.collectAsStateWithLifecycle()
+                val currentStyle by style.collectAsStateWithLifecycle()
+                val dot by showingDot.collectAsStateWithLifecycle()
+                val drag = remember {
+                    DragHandlers(
+                        onDragStart = ::onDragStart,
+                        onDrag = { dx, dy -> onDrag(dx, dy) },
+                        onDragEnd = ::onDragEnd
+                    )
+                }
                 MaterialTheme {
                     OverlayContent(
                         state = state,
-                        onDrag = { dx, dy ->
-                            params.x += dx.toInt()
-                            params.y += dy.toInt()
-                            runCatching { windowManager?.updateViewLayout(this@apply, params) }
-                        },
+                        style = currentStyle,
+                        collapsed = dot,
+                        drag = drag,
                         onTapBubble = { sendAction(DictationForegroundService.ACTION_START) },
+                        onTapDot = { collapse.update { it.reduce(BubbleCollapse.Event.Expand) } },
                         onConfirm = { sendAction(DictationForegroundService.ACTION_CONFIRM) },
                         onCancel = { sendAction(DictationForegroundService.ACTION_CANCEL) }
                     )
                 }
             }
         }
-        view.setViewTreeLifecycleOwner(this)
-        view.setViewTreeSavedStateRegistryOwner(this)
-        view.setViewTreeViewModelStoreOwner(this)
+        attachOwners(view)
 
         composeView = view
         wm.addView(view, params)
+    }
+
+    private fun onDragStart() {
+        collapse.update { it.reduce(BubbleCollapse.Event.DragStart) }
+        val params = layoutParams ?: return
+        composeView?.getLocationOnScreen(dragStartScreen)
+        dragStartX = params.x
+        dragStartY = params.y
+        showDismissTarget()
+    }
+
+    private fun onDrag(dx: Float, dy: Float) {
+        val params = layoutParams ?: return
+        val view = composeView ?: return
+        params.x += dx.toInt()
+        params.y += dy.toInt()
+        runCatching { windowManager?.updateViewLayout(view, params) }
+        overDismissTarget.value = isOverDismissTarget(params, view)
+    }
+
+    private fun onDragEnd() {
+        val dismissed = overDismissTarget.value
+        hideDismissTarget()
+        if (dismissed) {
+            // Put the bubble back where the drag began, so the next field it appears for does not
+            // find it parked on top of the keyboard at the bottom of the screen.
+            layoutParams?.let { params ->
+                params.x = dragStartX
+                params.y = dragStartY
+                composeView?.let { runCatching { windowManager?.updateViewLayout(it, params) } }
+            }
+            // Only the idle bubble can be dragged, but check rather than assume: hiding a live
+            // recording pill would strand the user with no way to confirm or cancel.
+            val state = DictationController.state.value
+            if (state == DictationUiState.Idle || state is DictationUiState.Error) {
+                DictationController.setState(DictationUiState.Hidden)
+            }
+        }
+        collapse.update { it.reduce(BubbleCollapse.Event.DragEnd) }
+    }
+
+    /**
+     * The bubble's screen position is derived from where it was when the drag began plus how far
+     * the window has moved since, rather than re-measured: getLocationOnScreen lags a frame behind
+     * updateViewLayout. The target is measured directly, since it does not move.
+     */
+    private fun isOverDismissTarget(params: WindowManager.LayoutParams, view: View): Boolean {
+        val target = dismissView ?: return false
+        if (target.width == 0) return false
+        val targetScreen = IntArray(2).also { target.getLocationOnScreen(it) }
+        val density = resources.displayMetrics.density
+        return DismissZone.isOver(
+            bubbleCenterX = dragStartScreen[0] + (params.x - dragStartX) + view.width / 2f,
+            bubbleCenterY = dragStartScreen[1] + (params.y - dragStartY) + view.height / 2f,
+            targetCenterX = targetScreen[0] + target.width / 2f,
+            targetCenterY = targetScreen[1] + target.height / 2f,
+            radiusPx = DISMISS_TARGET_SIZE.value * density
+        )
+    }
+
+    private fun showDismissTarget() {
+        if (dismissView != null) return
+        val wm = windowManager ?: return
+        val density = resources.displayMetrics.density
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            // Never touchable: it is a drop zone judged by position, and must not swallow the drag.
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            y = (DISMISS_BOTTOM_MARGIN_DP * density).toInt()
+        }
+        val view = ComposeView(this).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+            setContent {
+                val highlighted by overDismissTarget.collectAsStateWithLifecycle()
+                MaterialTheme {
+                    // Fixed-size box so the highlight's growth does not move the target's centre.
+                    Box(Modifier.size(DISMISS_TARGET_SIZE), contentAlignment = Alignment.Center) {
+                        DismissTarget(highlighted = highlighted)
+                    }
+                }
+            }
+        }
+        attachOwners(view)
+        dismissView = view
+        runCatching { wm.addView(view, params) }.onFailure { dismissView = null }
+    }
+
+    private fun hideDismissTarget() {
+        dismissView?.let { runCatching { windowManager?.removeView(it) } }
+        dismissView = null
+        overDismissTarget.value = false
+    }
+
+    private fun attachOwners(view: View) {
+        view.setViewTreeLifecycleOwner(this)
+        view.setViewTreeSavedStateRegistryOwner(this)
+        view.setViewTreeViewModelStoreOwner(this)
     }
 
     private fun sendAction(action: String) {
@@ -138,6 +336,9 @@ class OverlayBubbleService :
     }
 
     override fun onDestroy() {
+        unobservePreferences?.invoke()
+        unobservePreferences = null
+        hideDismissTarget()
         composeView?.let { runCatching { windowManager?.removeView(it) } }
         composeView = null
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
@@ -146,5 +347,6 @@ class OverlayBubbleService :
 
     private companion object {
         const val NOTIFICATION_ID = 1002
+        const val DISMISS_BOTTOM_MARGIN_DP = 96
     }
 }
