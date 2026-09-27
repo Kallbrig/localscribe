@@ -78,6 +78,11 @@ Every decision in the spec's table was Chase's, made in chat before any code.
   as a drop, a mid-drag wake leaving the drag snapshot 14 dp off, and the target re-measured on
   every drag event.
 
+**CI broke underneath this release, not because of it.** Runners now ship cmdline-tools 16.0,
+which dropped the legacy `tools` package that `android-actions/setup-android@v3` installs by
+default, so both workflows died at setup in ~30 s. Both now pass `packages: platform-tools`. The
+first `v0.2.0-beta.5` tag was deleted and re-pointed at the fix; it had never produced a release.
+
 **Not verified on a device.** No phone was attached this session. Everything under
 `ui/overlay/` that is pure is unit-tested (46 new tests); the windows, gestures, timer wiring
 and the Settings section are compile-checked only. The first install of beta.5 is the first
