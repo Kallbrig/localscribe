@@ -1,8 +1,8 @@
 # LocalScribe Android — Handoff
 
-_Last updated: 2026-08-31. Repo: https://github.com/Kallbrig/localscribe (public). Default branch `master`._
+_Last updated: 2026-09-27. Repo: https://github.com/Kallbrig/localscribe (public). Default branch `master`._
 
-**Stable: `v0.1.7`. In flight: `v0.2.0-beta.4`.** Unit suite: 204 tests, all passing.
+**Stable: `v0.1.7`. In flight: `v0.2.0-beta.5`.** Unit suite: 250 tests, all passing.
 
 Verified on a Galaxy S25 Ultra (Android 16, 8 cores, 11.4 GB RAM, arm64-v8a).
 
@@ -36,6 +36,52 @@ installed v0.1.1 or later. Back both up off that machine.
 ---
 
 ## What changed in this session
+
+### The mic bubble collapses, takes a colour, and can be dragged away (`v0.2.0-beta.5`)
+
+Asked for with Wispr Flow as the reference: its icon shrinks to a dot a few seconds after
+appearing. Design and plan: [`specs/2026-09-27-bubble-collapse-and-style-design.md`](superpowers/specs/2026-09-27-bubble-collapse-and-style-design.md),
+[`plans/2026-09-27-bubble-collapse-and-style.md`](superpowers/plans/2026-09-27-bubble-collapse-and-style.md).
+Every decision in the spec's table was Chase's, made in chat before any code.
+
+- **What restarts the timer is exactly two things**: a text field gaining focus, and a
+  dictation finishing (inserted, cancelled or failed). Dragging deliberately does not. A timer
+  that expires mid-drag collapses on release, never under the finger.
+- **`DictationUiState` could not carry the wake.** Moving from one field to another is
+  `Idle -> Idle`, which `StateFlow` does not re-emit, so a second field would never have
+  restarted the timer. `BubbleWake` is a counter: `onFieldFocused()` from the accessibility
+  service, plus one rule inside `setState` -- leaving `{Recording, Processing}` is a finish --
+  rather than a call at each finishing site. `setState` now uses `getAndUpdate` because it is
+  called from both the main thread and `Dispatchers.Default`, and the rule must see the real
+  transition.
+- **`BubbleCollapse` is a pure reducer with a generation**, the same shape as the recording
+  limit's: a superseded timer's expiry is dropped rather than collapsing early.
+- **A tap on the dot gets at least 3 seconds.** Found while writing the service, not in the
+  agreed design: at "Immediately" the expanded bubble would otherwise re-collapse before it
+  could be tapped, making dictation unreachable. `TAP_GRACE_MS`, unit-tested.
+- **Collapse shifts the window.** The overlay is `WRAP_CONTENT`, so a 56 dp window around a
+  small dot would swallow taps meant for the app underneath. The window shrinks to 28 dp and
+  moves by half the difference so the dot sits on the bubble's centre. The shift is driven by
+  what is *shown* (`showingDot` = collapsed *and* idle), not by the collapse state, so a timer
+  expiring during a recording cannot nudge the pill.
+- **Drag-to-dismiss** uses a second, `FLAG_NOT_TOUCHABLE` overlay window at bottom centre.
+  Hit testing derives the bubble's position from the drag-start snapshot plus window movement,
+  because `getLocationOnScreen` lags `updateViewLayout` by a frame. A dismissed bubble is put
+  back where the drag began, so it does not reappear parked over the keyboard. A cancelled
+  gesture is never a drop.
+- **Colour and opacity cover every overlay state**, as asked. The recording dot stays red
+  (it is the live-mic signal) with a ring in the glyph colour, because on the red swatch it
+  would otherwise vanish. Glyph colour is chosen by WCAG contrast ratio, and a test holds every
+  swatch at 3:1 or better.
+- Review of the branch found five real defects, all fixed before merge: the opacity slider
+  saving a composition-time capture (one step stale), the non-atomic `setState`, cancel treated
+  as a drop, a mid-drag wake leaving the drag snapshot 14 dp off, and the target re-measured on
+  every drag event.
+
+**Not verified on a device.** No phone was attached this session. Everything under
+`ui/overlay/` that is pure is unit-tested (46 new tests); the windows, gestures, timer wiring
+and the Settings section are compile-checked only. The first install of beta.5 is the first
+time any of it runs.
 
 ### Errors are written for people, and there is a way to report them
 
@@ -455,6 +501,16 @@ Highest value first.
 ---
 
 ## Discussed, not acted on
+
+- **The dot's touch area is 28 dp, below the 48 dp guideline.** Flagged in review. Deliberate:
+  the overlay window blocks touches across its whole area, transparent or not, so a 48 dp dot
+  would steal taps from the app underneath -- the thing collapsing exists to stop. Tapping the
+  dot only expands it, so a miss costs nothing but a second tap.
+- **Dismissal assumes the app does not re-focus the same field.** It lasts until the next
+  `TYPE_VIEW_FOCUSED` on an editable node, and an app that re-requests focus on its editor (on
+  a message arriving, a list rebind) would bring the bubble straight back. Plausible, not
+  observed -- untestable without a device. If it happens, the fix is to remember the dismissed
+  node and ignore focus events for that same node until a different one is focused.
 
 - **A `require(chunk.size % 2 == 0)` guard in `Pcm16`.** Raised twice in review: the function
   documents a whole-frame invariant it does not enforce, and violating it appends one fabricated

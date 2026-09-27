@@ -6,6 +6,18 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and s
 
 ### Added
 
+- **The mic bubble gets out of the way.** A few seconds after it appears -- 3 by default,
+  adjustable in Settings from immediately to a minute, or never -- it shrinks to a small dot.
+  Tap the dot to bring the bubble back; it will not start recording from the dot, so a stray
+  tap cannot open the microphone. Tapping into a text field or finishing a dictation brings it
+  back full size and starts the countdown again.
+- **Drag the bubble onto the X to hide it.** An X appears at the bottom of the screen while you
+  drag; drop the bubble on it and it stays hidden until you tap into another text field.
+- **Choose the bubble's colour and opacity.** Nine presets, including white and black, and an
+  opacity slider from 15% to fully opaque. Both apply to the whole overlay, including the
+  recording and processing controls; the pulsing red recording dot stays red, because it is how
+  you know the microphone is live. The mic icon switches between light and dark to stay
+  readable on whichever colour you pick.
 - **A Feedback section in Settings.** Write what happened, and LocalScribe opens your browser at
   a pre-filled GitHub issue for you to review and submit. It attaches your app and Android
   version, device model, processor and RAM details, which models you have, your cleanup style and
