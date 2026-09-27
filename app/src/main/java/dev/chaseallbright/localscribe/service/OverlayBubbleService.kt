@@ -41,6 +41,8 @@ import dev.chaseallbright.localscribe.dictation.DictationUiState
 import dev.chaseallbright.localscribe.settings.AppPreferences
 import dev.chaseallbright.localscribe.ui.overlay.BUBBLE_SIZE
 import dev.chaseallbright.localscribe.ui.overlay.BubbleCollapse
+import dev.chaseallbright.localscribe.ui.overlay.BubbleStyle
+import dev.chaseallbright.localscribe.ui.overlay.CollapseDelay
 import dev.chaseallbright.localscribe.ui.overlay.DISMISS_TARGET_SIZE
 import dev.chaseallbright.localscribe.ui.overlay.DOT_TOUCH_SIZE
 import dev.chaseallbright.localscribe.ui.overlay.DismissTarget
@@ -82,8 +84,8 @@ class OverlayBubbleService :
 
     private lateinit var preferences: AppPreferences
     private var unobservePreferences: (() -> Unit)? = null
-    private val style by lazy { MutableStateFlow(preferences.bubbleStyle) }
-    private val collapseDelay by lazy { MutableStateFlow(preferences.collapseDelay) }
+    private lateinit var style: MutableStateFlow<BubbleStyle>
+    private lateinit var collapseDelay: MutableStateFlow<CollapseDelay>
     private val collapse = MutableStateFlow(BubbleCollapse())
 
     /**
@@ -97,6 +99,7 @@ class OverlayBubbleService :
     private var dragStartScreen = IntArray(2)
     private var dragStartX = 0
     private var dragStartY = 0
+    private var dismissTargetCenter: Pair<Float, Float>? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -105,6 +108,8 @@ class OverlayBubbleService :
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
         preferences = AppPreferences(this)
+        style = MutableStateFlow(preferences.bubbleStyle)
+        collapseDelay = MutableStateFlow(preferences.collapseDelay)
         unobservePreferences = preferences.observeBubbleSettings {
             style.value = preferences.bubbleStyle
             collapseDelay.value = preferences.collapseDelay
@@ -167,6 +172,15 @@ class OverlayBubbleService :
                 val shift = if (dot) offsetPx else -offsetPx
                 params.x += shift
                 params.y += shift
+                // A wake mid-drag (another field took focus) can land here. Move the drag's
+                // reference point with the window, or the hit test and the post-dismiss restore
+                // are both off by the shift.
+                if (collapse.value.dragging) {
+                    dragStartX += shift
+                    dragStartY += shift
+                    dragStartScreen[0] += shift
+                    dragStartScreen[1] += shift
+                }
                 composeView?.let { runCatching { windowManager?.updateViewLayout(it, params) } }
             }
         }
@@ -201,7 +215,8 @@ class OverlayBubbleService :
                     DragHandlers(
                         onDragStart = ::onDragStart,
                         onDrag = { dx, dy -> onDrag(dx, dy) },
-                        onDragEnd = ::onDragEnd
+                        onDragEnd = { onDragEnd(dropped = true) },
+                        onDragCancel = { onDragEnd(dropped = false) }
                     )
                 }
                 MaterialTheme {
@@ -242,8 +257,8 @@ class OverlayBubbleService :
         overDismissTarget.value = isOverDismissTarget(params, view)
     }
 
-    private fun onDragEnd() {
-        val dismissed = overDismissTarget.value
+    private fun onDragEnd(dropped: Boolean) {
+        val dismissed = dropped && overDismissTarget.value
         hideDismissTarget()
         if (dismissed) {
             // Put the bubble back where the drag began, so the next field it appears for does not
@@ -269,17 +284,24 @@ class OverlayBubbleService :
      * updateViewLayout. The target is measured directly, since it does not move.
      */
     private fun isOverDismissTarget(params: WindowManager.LayoutParams, view: View): Boolean {
-        val target = dismissView ?: return false
-        if (target.width == 0) return false
-        val targetScreen = IntArray(2).also { target.getLocationOnScreen(it) }
-        val density = resources.displayMetrics.density
+        val (targetX, targetY) = dismissTargetCenter() ?: return false
         return DismissZone.isOver(
             bubbleCenterX = dragStartScreen[0] + (params.x - dragStartX) + view.width / 2f,
             bubbleCenterY = dragStartScreen[1] + (params.y - dragStartY) + view.height / 2f,
-            targetCenterX = targetScreen[0] + target.width / 2f,
-            targetCenterY = targetScreen[1] + target.height / 2f,
-            radiusPx = DISMISS_TARGET_SIZE.value * density
+            targetCenterX = targetX,
+            targetCenterY = targetY,
+            radiusPx = DISMISS_TARGET_SIZE.value * resources.displayMetrics.density
         )
+    }
+
+    /** Measured once the target has been laid out, then cached: it does not move while shown. */
+    private fun dismissTargetCenter(): Pair<Float, Float>? {
+        dismissTargetCenter?.let { return it }
+        val target = dismissView ?: return null
+        if (target.width == 0) return null
+        val screen = IntArray(2).also { target.getLocationOnScreen(it) }
+        return (screen[0] + target.width / 2f to screen[1] + target.height / 2f)
+            .also { dismissTargetCenter = it }
     }
 
     private fun showDismissTarget() {
@@ -317,6 +339,7 @@ class OverlayBubbleService :
     private fun hideDismissTarget() {
         dismissView?.let { runCatching { windowManager?.removeView(it) } }
         dismissView = null
+        dismissTargetCenter = null
         overDismissTarget.value = false
     }
 

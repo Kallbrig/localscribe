@@ -554,7 +554,11 @@ private fun MicBubbleSettings(preferences: AppPreferences) {
     Slider(
         value = opacityIndex,
         onValueChange = { opacityIndex = it },
-        onValueChangeFinished = { preferences.bubbleOpacityPercent = opacityPercent },
+        // Read the slider state, not `opacityPercent`: that is captured at composition and can
+        // be a step behind if the finger lifts in the same frame as the last change.
+        onValueChangeFinished = {
+            preferences.bubbleOpacityPercent = BubbleOpacity.percentAt(opacityIndex.roundToInt())
+        },
         valueRange = 0f..(BubbleOpacity.STEP_COUNT - 1).toFloat(),
         steps = BubbleOpacity.STEP_COUNT - 2,
         modifier = Modifier

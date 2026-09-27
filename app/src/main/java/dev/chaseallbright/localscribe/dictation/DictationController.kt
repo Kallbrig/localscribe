@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.getAndUpdate
 
 sealed interface DictationUiState {
     /** No editable field focused anywhere -- overlay fully hidden. */
@@ -42,9 +43,10 @@ object DictationController {
     val bubbleWake: StateFlow<Int> = wake.count
 
     fun setState(newState: DictationUiState) {
-        val previous = _state.value
+        // Atomic: setState is called from both the main thread and Dispatchers.Default, and the
+        // wake rule must see the transition that actually happened.
+        val previous = _state.getAndUpdate { newState }
         Log.d("DictationController", "state $previous -> $newState")
-        _state.value = newState
         wake.onTransition(previous, newState)
     }
 

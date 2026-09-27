@@ -48,7 +48,9 @@ private val PILL_ICON_SIZE = 40.dp
 class DragHandlers(
     val onDragStart: () -> Unit,
     val onDrag: (dx: Float, dy: Float) -> Unit,
-    val onDragEnd: () -> Unit
+    val onDragEnd: () -> Unit,
+    /** The system cancelled the gesture: end the drag, but never treat it as a drop. */
+    val onDragCancel: () -> Unit
 )
 
 @Composable
@@ -127,7 +129,7 @@ private fun IdleBubble(
                 detectDragGestures(
                     onDragStart = { drag.onDragStart() },
                     onDragEnd = { drag.onDragEnd() },
-                    onDragCancel = { drag.onDragEnd() }
+                    onDragCancel = { drag.onDragCancel() }
                 ) { change, dragAmount ->
                     change.consume()
                     drag.onDrag(dragAmount.x, dragAmount.y)
