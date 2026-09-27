@@ -144,6 +144,7 @@ class DictationAccessibilityService : AccessibilityService() {
         if (source.isEditable) {
             ModelSession.prewarm(this)
             focusedEditableNode = source
+            DictationController.onFieldFocused()
             // Error is treated as showable-and-clearable alongside Hidden/Idle: it is a
             // transient refusal, not a mode. Requiring an exact match left the bubble stuck on
             // screen after any refusal, because no later transition could match Error. Clearing

@@ -36,10 +36,20 @@ object DictationController {
     private val _transcriptReady = MutableSharedFlow<Transcript>(extraBufferCapacity = 1)
     val transcriptReady: SharedFlow<Transcript> = _transcriptReady.asSharedFlow()
 
+    private val wake = BubbleWake()
+
+    /** Bumps whenever the bubble's collapse timer should restart. See [BubbleWake]. */
+    val bubbleWake: StateFlow<Int> = wake.count
+
     fun setState(newState: DictationUiState) {
-        Log.d("DictationController", "state ${_state.value} -> $newState")
+        val previous = _state.value
+        Log.d("DictationController", "state $previous -> $newState")
         _state.value = newState
+        wake.onTransition(previous, newState)
     }
+
+    /** An editable field gained focus -- including a second field while already Idle. */
+    fun onFieldFocused() = wake.onFieldFocused()
 
     suspend fun publishTranscript(transcript: Transcript) {
         _transcriptReady.emit(transcript)
