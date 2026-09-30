@@ -2,6 +2,7 @@ package dev.chaseallbright.localscribe.service
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
+import android.graphics.Rect
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
@@ -137,8 +138,16 @@ class DictationAccessibilityService : AccessibilityService() {
                 if (activeApplicationPackage() != focusedEditableNode?.packageName) {
                     clearFocus()
                 }
+                publishImeTop()
             }
+            AccessibilityEvent.TYPE_WINDOWS_CHANGED -> publishImeTop()
         }
+    }
+
+    /** Where the keyboard starts, so the overlay can stay above it -- it is drawn below it. */
+    private fun publishImeTop() {
+        val ime = windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+        DictationController.setImeTop(ime?.let { window -> Rect().also { window.getBoundsInScreen(it) }.top })
     }
 
     private fun activeApplicationPackage(): CharSequence? =
@@ -192,6 +201,7 @@ class DictationAccessibilityService : AccessibilityService() {
     override fun onUnbind(intent: Intent?): Boolean {
         serviceScope.cancel()
         DictationController.setState(DictationUiState.Hidden)
+        DictationController.setImeTop(null)
         return super.onUnbind(intent)
     }
 }

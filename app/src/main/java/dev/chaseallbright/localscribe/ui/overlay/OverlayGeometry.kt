@@ -56,6 +56,7 @@ enum class OverlayShape(val widthDp: Int, val heightDp: Int) {
     PROCESSING(56, 56);
 
     companion object {
+        /** [holding] is whether the recording was started by press-and-hold. */
         fun of(state: DictationUiState, showingDot: Boolean, holding: Boolean): OverlayShape = when (state) {
             DictationUiState.Hidden -> NONE
             DictationUiState.Idle, is DictationUiState.Error -> if (showingDot) DOT else BUBBLE

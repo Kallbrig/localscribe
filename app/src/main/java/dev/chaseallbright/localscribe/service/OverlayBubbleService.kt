@@ -12,6 +12,7 @@ import android.graphics.PixelFormat
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
@@ -113,10 +114,8 @@ class OverlayBubbleService :
     private lateinit var collapseDelay: MutableStateFlow<CollapseDelay>
     private val collapse = MutableStateFlow(BubbleCollapse())
 
-    /** True while a hold-to-record is in progress, until its dictation leaves recording. */
-    private val holding = MutableStateFlow(false)
-    private var holdReleased = false
-    private var holdSawRecording = false
+    /** Uptime of the current hold's start, or 0 when no hold is in progress. */
+    private var holdStartedAt = 0L
 
     private lateinit var shape: StateFlow<OverlayShape>
     private lateinit var bounds: Bounds
@@ -124,7 +123,6 @@ class OverlayBubbleService :
 
     private var dismissView: ComposeView? = null
     private val overDismissTarget = MutableStateFlow(false)
-    private var dismissTargetCenter: Pair<Float, Float>? = null
     private var dragStartRawX = 0f
     private var dragStartRawY = 0f
     private var dragStartAnchor = PxPoint(0, 0)
@@ -155,7 +153,7 @@ class OverlayBubbleService :
         val showingDot = combine(collapse, DictationController.state) { c, state ->
             c.collapsed && (state == DictationUiState.Idle || state is DictationUiState.Error)
         }
-        shape = combine(DictationController.state, showingDot, holding) { state, dot, hold ->
+        shape = combine(DictationController.state, showingDot, DictationController.recordingIsHold) { state, dot, hold ->
             OverlayShape.of(state, dot, hold)
         }.distinctUntilChanged().stateIn(lifecycleScope, SharingStarted.Eagerly, OverlayShape.NONE)
 
@@ -206,7 +204,6 @@ class OverlayBubbleService :
         // Rotation changes the safe area; keep the bubble inside the new one.
         bounds = computeBounds()
         anchor = OverlayGeometry.clampAnchor(anchor.x, anchor.y, px(OverlayShape.BUBBLE.widthDp), bounds)
-        dismissTargetCenter = null
         applyLayout()
     }
 
@@ -228,7 +225,8 @@ class OverlayBubbleService :
                 }
         }
         lifecycleScope.launch { shape.collect { applyLayout() } }
-        lifecycleScope.launch { DictationController.state.collect(::trackHold) }
+        // The keyboard opening or closing changes where shapes may go.
+        lifecycleScope.launch { DictationController.imeTop.collect { applyLayout() } }
         lifecycleScope.launch {
             DictationController.starPromptRequests.collect {
                 // Let the dictated text land before anything appears over it.
@@ -279,6 +277,20 @@ class OverlayBubbleService :
         return if (id > 0) resources.getDimensionPixelSize(id) else 0
     }
 
+    /**
+     * [bounds] with the keyboard taken out. Application overlays are drawn beneath the IME, so
+     * anything placed over the keyboard is hidden behind it. The anchor itself is not moved: when
+     * the keyboard closes, the bubble goes back to where the user put it.
+     */
+    private fun effectiveBounds(): Bounds {
+        val imeTop = DictationController.imeTop.value ?: return bounds
+        val bottom = imeTop - px(EDGE_MARGIN_DP)
+        // A keyboard that leaves no room at all (landscape, a tall IME) is ignored rather than
+        // squeezing every shape into nothing.
+        return if (bottom - bounds.top < px(OverlayShape.BUBBLE.heightDp) * 2) bounds
+        else bounds.copy(bottom = minOf(bounds.bottom, bottom))
+    }
+
     /** Sizes and places the bubble window for the current shape. */
     private fun applyLayout() {
         val view = rootView ?: return
@@ -291,7 +303,11 @@ class OverlayBubbleService :
             val pad = px(SHADOW_PADDING)
             val width = px(current.widthDp)
             val height = px(current.heightDp)
-            val topLeft = OverlayGeometry.placeCentered(anchor.x, anchor.y, width, height, bounds)
+            val area = effectiveBounds()
+            // The anchor is clamped into the current area too, so a bubble placed low on the
+            // screen rides up above the keyboard instead of hiding behind it.
+            val centre = OverlayGeometry.clampAnchor(anchor.x, anchor.y, px(OverlayShape.BUBBLE.widthDp), area)
+            val topLeft = OverlayGeometry.placeCentered(centre.x, centre.y, width, height, area)
             layoutParams.x = topLeft.x - pad
             layoutParams.y = topLeft.y - pad
             layoutParams.width = width + pad * 2
@@ -357,54 +373,38 @@ class OverlayBubbleService :
         if (onDot) {
             collapse.update { it.reduce(BubbleCollapse.Event.Expand) }
         } else {
-            resetHold()
             sendAction(DictationForegroundService.ACTION_START)
         }
     }
 
     private fun onHoldStart() {
-        holding.value = true
-        holdReleased = false
-        holdSawRecording = false
-        sendAction(DictationForegroundService.ACTION_START)
+        holdStartedAt = SystemClock.uptimeMillis()
+        sendAction(DictationForegroundService.ACTION_START) { putExtra(DictationForegroundService.EXTRA_HOLD, true) }
     }
 
     /**
-     * Releasing always transcribes. Intents to one service arrive in order, so a release that
-     * beats the recorder still confirms after it starts, and a refused start makes the confirm a
-     * no-op.
+     * Releasing transcribes -- unless the hold was too short to have been meant, which becomes an
+     * ordinary tap recording with its buttons: transcribing a fraction of a second invites Whisper
+     * to invent text. Intents to one service arrive in order, so a release that beats the recorder
+     * is still applied after it starts, and a refused start makes either a no-op.
      */
     private fun onHoldEnd() {
-        if (!holding.value) return
-        holdReleased = true
-        sendAction(DictationForegroundService.ACTION_CONFIRM)
-        if (holdSawRecording && DictationController.state.value != DictationUiState.Recording) resetHold()
-    }
-
-    /**
-     * Keeps the hold pill up from the start of the hold until its dictation leaves recording. A
-     * refusal ends the hold at once; otherwise the hold ends when the released recording moves on.
-     */
-    private fun trackHold(state: DictationUiState) {
-        if (!holding.value) return
-        when {
-            state is DictationUiState.Error -> resetHold()
-            state == DictationUiState.Recording -> holdSawRecording = true
-            holdSawRecording && holdReleased -> resetHold()
-        }
-    }
-
-    private fun resetHold() {
-        holding.value = false
-        holdReleased = false
-        holdSawRecording = false
+        if (holdStartedAt == 0L) return
+        val held = SystemClock.uptimeMillis() - holdStartedAt
+        holdStartedAt = 0L
+        sendAction(
+            if (held < MIN_HOLD_MS) DictationForegroundService.ACTION_RELEASE_TO_TAP
+            else DictationForegroundService.ACTION_CONFIRM
+        )
     }
 
     private fun onDragStart() {
         collapse.update { it.reduce(BubbleCollapse.Event.DragStart) }
         val root = rootView ?: return
-        dragStartRawX = root.rawX
-        dragStartRawY = root.rawY
+        // From where the finger went down, not where the drag was recognised: otherwise the
+        // bubble trails the finger by the touch-slop distance for the whole drag.
+        dragStartRawX = root.downRawX
+        dragStartRawY = root.downRawY
         dragStartAnchor = anchor
         showDismissTarget()
     }
@@ -419,7 +419,7 @@ class OverlayBubbleService :
             dragStartAnchor.x + (root.rawX - dragStartRawX).toInt(),
             dragStartAnchor.y + (root.rawY - dragStartRawY).toInt(),
             px(OverlayShape.BUBBLE.widthDp),
-            bounds
+            effectiveBounds()
         )
         applyLayout()
         val over = isOverDismissTarget()
@@ -452,7 +452,7 @@ class OverlayBubbleService :
     }
 
     private fun isOverDismissTarget(): Boolean {
-        val (targetX, targetY) = dismissTargetCenter() ?: return false
+        val (targetX, targetY) = dismissTargetCenter()
         return DismissZone.isOver(
             bubbleCenterX = anchor.x.toFloat(),
             bubbleCenterY = anchor.y.toFloat(),
@@ -462,28 +462,35 @@ class OverlayBubbleService :
         )
     }
 
-    /** Measured once the target has been laid out, then cached: it does not move while shown. */
-    private fun dismissTargetCenter(): Pair<Float, Float>? {
-        dismissTargetCenter?.let { return it }
-        val target = dismissView ?: return null
-        if (target.width == 0) return null
-        val screen = IntArray(2).also { target.getLocationOnScreen(it) }
-        return (screen[0] + target.width / 2f to screen[1] + target.height / 2f)
-            .also { dismissTargetCenter = it }
+    /**
+     * Bottom centre of the area the bubble may occupy -- above the keyboard when one is open, since
+     * the keyboard would otherwise hide the target. Computed, not measured, in the same screen
+     * coordinates as the anchor.
+     */
+    private fun dismissTargetCenter(): Pair<Float, Float> {
+        val area = effectiveBounds()
+        return (area.left + area.width / 2f) to (area.bottom - px(DISMISS_TARGET_SIZE) / 2f)
     }
 
     private fun showDismissTarget() {
         if (dismissView != null) return
+        val size = px(DISMISS_TARGET_SIZE)
+        val (centreX, centreY) = dismissTargetCenter()
         val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            size,
+            size,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             // Never touchable: it is a drop zone judged by position, and must not swallow the drag.
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            y = px(DISMISS_BOTTOM_MARGIN_DP)
+            // Same coordinate space as the bubble window, so the hit test and the drawing agree.
+            gravity = Gravity.TOP or Gravity.START
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            x = (centreX - size / 2f).toInt()
+            y = (centreY - size / 2f).toInt()
         }
         val view = ComposeView(this).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
@@ -505,7 +512,6 @@ class OverlayBubbleService :
     private fun hideDismissTarget() {
         dismissView?.let { runCatching { windowManager.removeView(it) } }
         dismissView = null
-        dismissTargetCenter = null
         overDismissTarget.value = false
     }
 
@@ -519,9 +525,10 @@ class OverlayBubbleService :
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            // Not focusable, so the keyboard and the field underneath stay as they were. Outside
-            // touches are watched so tapping away counts as "later" instead of trapping the user.
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+            // Not focusable, so the keyboard and the field underneath keep working. Tapping outside
+            // does not close it: the card arrives just as the user reaches for Send, and a touch
+            // there would dismiss it unread. It waits for one of its three answers.
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.CENTER }
         val compose = ComposeView(this).apply {
@@ -544,7 +551,7 @@ class OverlayBubbleService :
                 }
             }
         }
-        val frame = OutsideTouchFrame(this) { remindLaterAndClose() }.apply { addView(compose) }
+        val frame = FrameLayout(this).apply { addView(compose) }
         attachOwners(frame)
         starCardView = frame
         runCatching { windowManager.addView(frame, params) }.onFailure { starCardView = null }
@@ -578,8 +585,8 @@ class OverlayBubbleService :
         view.setViewTreeViewModelStoreOwner(this)
     }
 
-    private fun sendAction(action: String) {
-        val intent = Intent(this, DictationForegroundService::class.java).setAction(action)
+    private fun sendAction(action: String, extras: Intent.() -> Unit = {}) {
+        val intent = Intent(this, DictationForegroundService::class.java).setAction(action).apply(extras)
         if (action == DictationForegroundService.ACTION_START) {
             ContextCompat.startForegroundService(this, intent)
         } else {
@@ -604,20 +611,17 @@ class OverlayBubbleService :
             private set
         var rawY = 0f
             private set
+        var downRawX = 0f
+            private set
+        var downRawY = 0f
+            private set
 
         override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
             rawX = ev.rawX
             rawY = ev.rawY
-            return super.dispatchTouchEvent(ev)
-        }
-    }
-
-    /** Reports a touch outside the window, delivered because of FLAG_WATCH_OUTSIDE_TOUCH. */
-    private class OutsideTouchFrame(context: Context, private val onOutside: () -> Unit) : FrameLayout(context) {
-        override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-            if (ev.actionMasked == MotionEvent.ACTION_OUTSIDE) {
-                onOutside()
-                return true
+            if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+                downRawX = ev.rawX
+                downRawY = ev.rawY
             }
             return super.dispatchTouchEvent(ev)
         }
@@ -628,10 +632,12 @@ class OverlayBubbleService :
         const val ACTION_SHOW_BUBBLE = "dev.chaseallbright.localscribe.action.SHOW_BUBBLE"
 
         private const val NOTIFICATION_ID = 1002
-        private const val DISMISS_BOTTOM_MARGIN_DP = 96
         private const val EDGE_MARGIN_DP = 16
         private const val INITIAL_X = 100
         private const val INITIAL_Y = 300
         private const val STAR_CARD_DELAY_MS = 700L
+
+        /** A hold released sooner than this after recording began is treated as a tap. */
+        private const val MIN_HOLD_MS = 400L
     }
 }

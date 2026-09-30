@@ -149,7 +149,15 @@ fun OverlayContent(
                                 g.onDragEnd(dropped)
                             }
                         }
-                        GestureKind.HOLD -> {
+                        GestureKind.HOLD -> if (onDot) {
+                            // The dot never opens the microphone, held or tapped: it only expands.
+                            g.onTap(true)
+                            while (true) {
+                                val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                                change.consume()
+                                if (!change.pressed) break
+                            }
+                        } else {
                             g.onHoldStart()
                             try {
                                 while (true) {
