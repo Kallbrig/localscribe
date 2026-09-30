@@ -55,7 +55,8 @@ lists commits, which is fine for a beta and thin for something a user is being a
 install. Write them to `docs/release-notes/vX.Y.Z.md` before tagging: the workflow publishes
 that file as the release body, with the generated commit list after it. See
 [`release-notes/v0.2.0.md`](release-notes/v0.2.0.md) for the shape -- what's new, bug fixes,
-under the hood, known limitations.
+under the hood, known limitations. Keep each paragraph and bullet on one line: GitHub renders every
+newline in a release body as a hard line break.
 
 ## What the workflow enforces
 
