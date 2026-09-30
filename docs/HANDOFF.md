@@ -1,8 +1,8 @@
 # LocalScribe Android — Handoff
 
-_Last updated: 2026-09-27. Repo: https://github.com/Kallbrig/localscribe (public). Default branch `master`._
+_Last updated: 2026-09-30. Repo: https://github.com/Kallbrig/localscribe (public). Default branch `master`._
 
-**Stable: `v0.1.7`. In flight: `v0.2.0-beta.5`.** Unit suite: 250 tests, all passing.
+**Stable: `v0.1.7`. In flight: `v0.2.0-beta.6`.** Unit suite: 278 tests, all passing.
 
 Verified on a Galaxy S25 Ultra (Android 16, 8 cores, 11.4 GB RAM, arm64-v8a).
 
@@ -36,6 +36,51 @@ installed v0.1.1 or later. Back both up off that machine.
 ---
 
 ## What changed in this session
+
+### Hold to record, an overlay that stays on screen, timed dismissal, a star card (`v0.2.0-beta.6`)
+
+Asked for after Chase used beta.5 (screenshot: the recording pill expanded past the right edge).
+Design and plan: [`specs/2026-09-30-pill-hold-bounds-dismiss-design.md`](superpowers/specs/2026-09-30-pill-hold-bounds-dismiss-design.md),
+[`plans/2026-09-30-pill-hold-bounds-dismiss.md`](superpowers/plans/2026-09-30-pill-hold-bounds-dismiss.md).
+Every behaviour in the spec's table was decided in chat before code.
+
+- **One anchor, explicit window sizes.** The bubble's window was `WRAP_CONTENT` and grew from its
+  top-left, which is why the pill ran off the right edge. Now the only stored position is the
+  bubble's centre; every shape (`OverlayShape`) is centred on it and clamped into a safe area by
+  the pure `OverlayGeometry`, and the window is sized to the shape plus `SHADOW_PADDING`. This
+  replaces beta.5's dot-offset shifting outright.
+- **The keyboard draws over application overlays.** Found in review, and it affected beta.5 too:
+  the X target, 96 dp from the bottom, sat behind the keyboard in exactly the moment it is used.
+  The accessibility service now listens for `typeWindowsChanged` and publishes the IME window's
+  top edge; the safe area and the target sit above it, and a bubble placed low rides up while
+  the keyboard is open and returns when it closes.
+- **The square shadow** was two clips: the window sized exactly to the content, and opacity
+  applied as a `graphicsLayer` alpha, which renders offscreen at the layer's own size. Opacity is
+  now applied through colours, shadow colours included, so there is no offscreen layer at all.
+- **Hold to record is one gesture handler on the root,** not on the bubble: the bubble is replaced
+  by the pill while the finger is still down, and a handler on it would be disposed and never see
+  the release. Tap, drag or hold is decided by whichever comes first -- release, touch slop, or
+  250 ms. Drags use raw screen coordinates from the window's root view, measured from the
+  down event, since Compose's positions are relative to a window that moves under the finger.
+- **Hold mode travels with the recording** (`EXTRA_HOLD` on `ACTION_START`, published by the
+  recording service before it sets `Recording`). The first version inferred it in the overlay from
+  state transitions, and review found the refusal path could be lost to `StateFlow` conflation --
+  the accessibility service turns `Error` back into `Idle` on the same main-thread turn.
+- **A hold released within 400 ms becomes a tap recording** (`ACTION_RELEASE_TO_TAP`), not a
+  transcription: a slow tap would otherwise transcribe a fraction of a second, and Whisper invents
+  text from near-silence. Not asked for; found in review. Holding the dot only expands it.
+- **The star card waits for an answer.** Tapping outside originally meant "later", but the card
+  arrives just as the user reaches for Send, so it would have closed unread every time.
+- Timed dismissal is a wall-clock deadline in preferences, so it survives the process; a deadline
+  further out than an hour means the clock moved back and counts as expired.
+
+**Not verified on a device, again.** No phone was attached. The first thing to check on install
+is that shapes land where intended: the code assumes an overlay window's x/y are in the same
+screen space as raw touch coordinates and window insets (`FLAG_LAYOUT_NO_LIMITS`,
+`LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES`). If every shape sits one status-bar height too low,
+that assumption is wrong. Then: hold-to-record end to end, the X above the keyboard, haptics,
+the notification buttons. The star card can be forced by setting `star_prompt_uses` to 99 in
+`localscribe_settings`.
 
 ### The mic bubble collapses, takes a colour, and can be dragged away (`v0.2.0-beta.5`)
 
@@ -506,6 +551,14 @@ Highest value first.
 ---
 
 ## Discussed, not acted on
+
+- **The hold pill's equalizer is decorative,** not driven by the microphone level. Asked for as
+  "a simple equalizer animation". Wiring it to real levels would mean publishing RMS from
+  `AudioRecorder`'s capture thread; worth it only if a silent-mic failure ever needs to be visible
+  during a hold.
+- **The dismiss target is drawn over the dragged bubble** when they overlap, because it is the
+  later window. The target highlights, so the drop is still legible; reordering would mean
+  removing and re-adding the bubble window mid-drag.
 
 - **The dot's touch area is 28 dp, below the 48 dp guideline.** Flagged in review. Deliberate:
   the overlay window blocks touches across its whole area, transparent or not, so a 48 dp dot
