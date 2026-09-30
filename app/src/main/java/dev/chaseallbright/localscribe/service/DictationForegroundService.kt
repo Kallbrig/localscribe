@@ -71,14 +71,16 @@ class DictationForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_START -> startRecording()
+            ACTION_START -> startRecording(hold = intent.getBooleanExtra(EXTRA_HOLD, false))
+            // A hold released too soon to be meant: carry on as an ordinary tap recording.
+            ACTION_RELEASE_TO_TAP -> if (isRecording) DictationController.setRecordingIsHold(false)
             ACTION_CONFIRM -> confirmAndProcess()
             ACTION_CANCEL -> cancelRecording()
         }
         return START_NOT_STICKY
     }
 
-    private fun startRecording() {
+    private fun startRecording(hold: Boolean) {
         if (isRecording) return
         // Ahead of permissions and the model check, and long before the microphone opens: on a
         // pre-ARMv8.2 CPU the native engine does not fail gracefully, it executes an
@@ -125,6 +127,8 @@ class DictationForegroundService : Service() {
         requestAudioFocus()
         recorder.start()
         isRecording = true
+        // Before the state, so the overlay never draws a frame of the wrong pill.
+        DictationController.setRecordingIsHold(hold)
         DictationController.setState(DictationUiState.Recording)
     }
 
@@ -290,6 +294,10 @@ class DictationForegroundService : Service() {
         const val ACTION_START = "dev.chaseallbright.localscribe.action.START_RECORDING"
         const val ACTION_CONFIRM = "dev.chaseallbright.localscribe.action.CONFIRM"
         const val ACTION_CANCEL = "dev.chaseallbright.localscribe.action.CANCEL"
+        const val ACTION_RELEASE_TO_TAP = "dev.chaseallbright.localscribe.action.RELEASE_TO_TAP"
+
+        /** On [ACTION_START]: the recording is press-and-hold, released to transcribe. */
+        const val EXTRA_HOLD = "dev.chaseallbright.localscribe.extra.HOLD"
         private const val NOTIFICATION_ID = 1001
         private const val TAG = "DictationService"
     }

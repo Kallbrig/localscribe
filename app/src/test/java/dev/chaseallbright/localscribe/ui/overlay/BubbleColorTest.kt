@@ -46,6 +46,34 @@ class BubbleColorTest {
     }
 
     @Test
+    fun `buttons differ from the pill they sit on`() {
+        BubbleColor.entries.forEach { color ->
+            assertTrue(color.name, color.buttonArgb != color.argb)
+        }
+    }
+
+    @Test
+    fun `button glyphs stay legible on every swatch`() {
+        BubbleColor.entries.forEach { color ->
+            val ratio = BubbleColor.contrastRatio(color.buttonArgb, color.contentArgb)
+            assertTrue("${color.name} button contrast $ratio", ratio >= 3.0)
+        }
+    }
+
+    @Test
+    fun `dark pills get lighter buttons and light pills darker ones`() {
+        val black = 0xFF000000L
+        assertTrue(
+            BubbleColor.contrastRatio(BubbleColor.BLACK.buttonArgb, black) >
+                BubbleColor.contrastRatio(BubbleColor.BLACK.argb, black)
+        )
+        assertTrue(
+            BubbleColor.contrastRatio(BubbleColor.WHITE.buttonArgb, black) <
+                BubbleColor.contrastRatio(BubbleColor.WHITE.argb, black)
+        )
+    }
+
+    @Test
     fun `contrast of black on white is twenty one`() {
         assertEquals(21.0, BubbleColor.contrastRatio(0xFF000000L, 0xFFFFFFFFL), 0.01)
     }

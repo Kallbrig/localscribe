@@ -2,12 +2,14 @@ package dev.chaseallbright.localscribe.service
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
+import android.graphics.Rect
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import dev.chaseallbright.localscribe.R
+import dev.chaseallbright.localscribe.dictation.BubbleDismissal
 import dev.chaseallbright.localscribe.dictation.DictationController
 import dev.chaseallbright.localscribe.dictation.DictationUiState
 import dev.chaseallbright.localscribe.dictation.ModelSession
@@ -38,6 +40,8 @@ class DictationAccessibilityService : AccessibilityService() {
     // transcript means it recovered, so a subsequent regression is worth warning about again.
     private var warnedCleanupFallback = false
 
+    private val preferences by lazy { AppPreferences(this) }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         ContextCompat.startForegroundService(this, Intent(this, OverlayBubbleService::class.java))
@@ -50,6 +54,7 @@ class DictationAccessibilityService : AccessibilityService() {
                 // "Copied -- paste manually" toast when both insertion tiers failed.
                 if (inserted) {
                     maybeToastCleanupFallback(transcript)
+                    recordStarPromptUse()
                 }
             }
         }
@@ -103,11 +108,20 @@ class DictationAccessibilityService : AccessibilityService() {
         // back to defaultCleanupTier() -- an ActivityManager binder IPC -- whenever the tier
         // pref is unset. All sub-millisecond, and this only runs once per completed dictation
         // on the main thread, so a coroutine hop isn't worth the added complexity here.
-        val cleanupModelInstalled = ModelManager(this).isCleanupModelReady(AppPreferences(this).cleanupTier)
+        val cleanupModelInstalled = ModelManager(this).isCleanupModelReady(preferences.cleanupTier)
         if (shouldWarnCleanupFallback(transcript.backend, cleanupModelInstalled)) {
             warnedCleanupFallback = true
             Toast.makeText(this, getString(R.string.cleanup_fallback_toast), Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /** Counts a completed, inserted dictation toward the GitHub star card. */
+    private fun recordStarPromptUse() {
+        val policy = preferences.starPrompt
+        if (policy.finished) return
+        val updated = policy.recordUse()
+        preferences.starPrompt = updated
+        if (updated.due) DictationController.requestStarPrompt()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -124,8 +138,16 @@ class DictationAccessibilityService : AccessibilityService() {
                 if (activeApplicationPackage() != focusedEditableNode?.packageName) {
                     clearFocus()
                 }
+                publishImeTop()
             }
+            AccessibilityEvent.TYPE_WINDOWS_CHANGED -> publishImeTop()
         }
+    }
+
+    /** Where the keyboard starts, so the overlay can stay above it -- it is drawn below it. */
+    private fun publishImeTop() {
+        val ime = windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+        DictationController.setImeTop(ime?.let { window -> Rect().also { window.getBoundsInScreen(it) }.top })
     }
 
     private fun activeApplicationPackage(): CharSequence? =
@@ -144,6 +166,10 @@ class DictationAccessibilityService : AccessibilityService() {
         if (source.isEditable) {
             ModelSession.prewarm(this)
             focusedEditableNode = source
+            DictationController.setFieldFocused(true)
+            // A timed dismissal hides the bubble for every field until it expires. No wake
+            // either, so the collapse timer is not restarted for a bubble nobody can see.
+            if (BubbleDismissal.isSuppressed(preferences)) return
             DictationController.onFieldFocused()
             // Error is treated as showable-and-clearable alongside Hidden/Idle: it is a
             // transient refusal, not a mode. Requiring an exact match left the bubble stuck on
@@ -161,6 +187,7 @@ class DictationAccessibilityService : AccessibilityService() {
     private fun clearFocus() {
         ModelSession.onFocusLost()
         focusedEditableNode = null
+        DictationController.setFieldFocused(false)
         val current = DictationController.state.value
         if (current == DictationUiState.Idle || current is DictationUiState.Error) {
             DictationController.setState(DictationUiState.Hidden)
@@ -174,6 +201,7 @@ class DictationAccessibilityService : AccessibilityService() {
     override fun onUnbind(intent: Intent?): Boolean {
         serviceScope.cancel()
         DictationController.setState(DictationUiState.Hidden)
+        DictationController.setImeTop(null)
         return super.onUnbind(intent)
     }
 }

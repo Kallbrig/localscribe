@@ -1,6 +1,6 @@
 package dev.chaseallbright.localscribe.ui.overlay
 
-import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -8,13 +8,19 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -25,56 +31,181 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.chaseallbright.localscribe.dictation.DictationUiState
 
-val BUBBLE_SIZE = 56.dp
+/**
+ * Room around every shape inside its window, so shadows are drawn rather than clipped at the
+ * window's edge -- the square-looking shadow behind the pill.
+ */
+val SHADOW_PADDING = 12.dp
 
-/** The dot's window. Larger than the dot itself so it stays tappable, small enough not to block much. */
-val DOT_TOUCH_SIZE = 28.dp
+val DISMISS_TARGET_SIZE = 64.dp
 private val DOT_SIZE = 16.dp
-private val PILL_HEIGHT = 56.dp
-private val PILL_ICON_SIZE = 40.dp
+private val PILL_BUTTON_SIZE = 40.dp
 
-/** Drag callbacks shared by the bubble and the dot. */
-class DragHandlers(
+/** A touch held still this long starts a hold-to-record; moving first makes it a drag. */
+const val HOLD_TO_RECORD_MS = 250L
+
+/** Recording red. Never faded by the opacity setting: it is the live-microphone signal. */
+private val RECORDING_RED = Color(0xFFE53935)
+
+/** Everything the idle bubble's single gesture handler can report. */
+class OverlayGestures(
+    val onTap: (onDot: Boolean) -> Unit,
     val onDragStart: () -> Unit,
-    val onDrag: (dx: Float, dy: Float) -> Unit,
-    val onDragEnd: () -> Unit,
-    /** The system cancelled the gesture: end the drag, but never treat it as a drop. */
-    val onDragCancel: () -> Unit
+    val onDragMove: () -> Unit,
+    /** [dropped] is false when the system cancelled the gesture: never treat that as a drop. */
+    val onDragEnd: (dropped: Boolean) -> Unit,
+    val onHoldStart: () -> Unit,
+    val onHoldEnd: () -> Unit
 )
 
+private enum class GestureKind { TAP, DRAG, HOLD, GONE }
+
+/**
+ * The overlay window's content, centred with [SHADOW_PADDING] all round.
+ *
+ * The gesture handler sits here, on the root, rather than on the bubble: a hold replaces the
+ * bubble with the pill while the finger is still down, and a handler attached to the bubble would
+ * be disposed with it and never see the release.
+ */
 @Composable
 fun OverlayContent(
     state: DictationUiState,
+    shape: OverlayShape,
     style: BubbleStyle,
-    collapsed: Boolean,
-    drag: DragHandlers,
-    onTapBubble: () -> Unit,
-    onTapDot: () -> Unit,
+    gestures: OverlayGestures,
     onConfirm: () -> Unit,
     onCancel: () -> Unit
 ) {
-    // Opacity covers every state, pill and spinner included, as agreed.
-    Box(modifier = Modifier.graphicsLayer { alpha = BubbleOpacity.alphaOf(style.opacityPercent) }) {
-        when (state) {
-            is DictationUiState.Hidden -> Unit
-            is DictationUiState.Idle, is DictationUiState.Error ->
-                IdleBubble(style, collapsed, drag, onTapBubble = onTapBubble, onTapDot = onTapDot)
-            is DictationUiState.Recording -> RecordingPill(style, onConfirm = onConfirm, onCancel = onCancel)
-            is DictationUiState.Processing -> ProcessingPill(style)
+    val idle = state == DictationUiState.Idle || state is DictationUiState.Error
+    val currentIdle by rememberUpdatedState(idle)
+    val currentShape by rememberUpdatedState(shape)
+    val currentGestures by rememberUpdatedState(gestures)
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(SHADOW_PADDING)
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = true)
+                    // Only gestures that begin on the idle bubble or dot. The tap-mode pill's
+                    // buttons have their own handlers and consume their touches.
+                    if (!currentIdle) return@awaitEachGesture
+                    val onDot = currentShape == OverlayShape.DOT
+                    val g = currentGestures
+
+                    val kind = withTimeoutOrNull(HOLD_TO_RECORD_MS) {
+                        var result = GestureKind.GONE
+                        while (true) {
+                            val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id }
+                            if (change == null) break
+                            if (!change.pressed) {
+                                result = GestureKind.TAP
+                                break
+                            }
+                            if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                                result = GestureKind.DRAG
+                                break
+                            }
+                        }
+                        result
+                    } ?: GestureKind.HOLD
+
+                    when (kind) {
+                        GestureKind.TAP -> g.onTap(onDot)
+                        GestureKind.GONE -> Unit
+                        GestureKind.DRAG -> {
+                            var dropped = false
+                            g.onDragStart()
+                            try {
+                                while (true) {
+                                    val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                                    if (!change.pressed) {
+                                        dropped = true
+                                        break
+                                    }
+                                    change.consume()
+                                    // Positions come from raw screen coordinates in the service:
+                                    // this window moves under the finger, so local ones drift.
+                                    g.onDragMove()
+                                }
+                            } finally {
+                                g.onDragEnd(dropped)
+                            }
+                        }
+                        GestureKind.HOLD -> if (onDot) {
+                            // The dot never opens the microphone, held or tapped: it only expands.
+                            g.onTap(true)
+                            while (true) {
+                                val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                                change.consume()
+                                if (!change.pressed) break
+                            }
+                        } else {
+                            g.onHoldStart()
+                            try {
+                                while (true) {
+                                    val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                                    change.consume()
+                                    if (!change.pressed) break
+                                }
+                            } finally {
+                                // No cancel while holding, as agreed: however the hold ends, it
+                                // transcribes.
+                                g.onHoldEnd()
+                            }
+                        }
+                    }
+                }
+            }
+    ) {
+        when (shape) {
+            OverlayShape.NONE -> Unit
+            OverlayShape.DOT, OverlayShape.BUBBLE -> BubbleFace(
+                style = style,
+                collapsed = shape == OverlayShape.DOT,
+                modifier = Modifier.semantics {
+                    contentDescription = if (shape == OverlayShape.DOT) "Show dictation button" else "Start dictation"
+                }
+            )
+            OverlayShape.PILL -> RecordingPill(style, onConfirm = onConfirm, onCancel = onCancel)
+            OverlayShape.HOLD_PILL -> HoldPill(style)
+            OverlayShape.PROCESSING -> ProcessingPill(style)
         }
     }
 }
+
+/**
+ * A surface whose fill and shadow both follow the opacity setting. Opacity is applied through the
+ * colours rather than a layer: a layer with alpha renders offscreen at its own size and cuts the
+ * shadow off square.
+ */
+private fun Modifier.overlaySurface(color: Color, alpha: Float, elevation: Dp, shape: Shape): Modifier =
+    this
+        .shadow(
+            elevation = elevation,
+            shape = shape,
+            clip = false,
+            ambientColor = Color.Black.copy(alpha = alpha),
+            spotColor = Color.Black.copy(alpha = alpha)
+        )
+        .background(color.copy(alpha = alpha), shape)
 
 /**
  * The idle bubble or its collapsed dot, with no gestures. Shared with the Settings preview so the
@@ -82,164 +213,182 @@ fun OverlayContent(
  */
 @Composable
 fun BubbleFace(style: BubbleStyle, collapsed: Boolean, modifier: Modifier = Modifier) {
-    val background = Color(style.color.argb)
+    val alpha = BubbleOpacity.alphaOf(style.opacityPercent)
+    val color = Color(style.color.argb)
     if (collapsed) {
-        Box(modifier = modifier.size(DOT_TOUCH_SIZE), contentAlignment = Alignment.Center) {
-            Surface(
-                shape = CircleShape,
-                color = background,
-                shadowElevation = 3.dp,
-                modifier = Modifier.size(DOT_SIZE)
-            ) {}
+        Box(modifier = modifier.size(OverlayShape.DOT.widthDp.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(DOT_SIZE).overlaySurface(color, alpha, 3.dp, CircleShape))
         }
     } else {
-        Surface(
-            shape = CircleShape,
-            color = background,
-            shadowElevation = 6.dp,
-            modifier = modifier.size(BUBBLE_SIZE)
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = modifier
+                .size(OverlayShape.BUBBLE.widthDp.dp)
+                .overlaySurface(color, alpha, 6.dp, CircleShape)
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.Filled.Mic,
-                    contentDescription = null,
-                    tint = Color(style.color.contentArgb)
-                )
-            }
+            Icon(
+                imageVector = Icons.Filled.Mic,
+                contentDescription = null,
+                tint = Color(style.color.contentArgb).copy(alpha = alpha)
+            )
         }
     }
 }
 
 @Composable
-private fun IdleBubble(
-    style: BubbleStyle,
-    collapsed: Boolean,
-    drag: DragHandlers,
-    onTapBubble: () -> Unit,
-    onTapDot: () -> Unit
-) {
-    BubbleFace(
-        style = style,
-        collapsed = collapsed,
-        modifier = Modifier
-            .semantics {
-                contentDescription = if (collapsed) "Show dictation button" else "Start dictation"
-            }
-            .pointerInput(drag) {
-                detectDragGestures(
-                    onDragStart = { drag.onDragStart() },
-                    onDragEnd = { drag.onDragEnd() },
-                    onDragCancel = { drag.onDragCancel() }
-                ) { change, dragAmount ->
-                    change.consume()
-                    drag.onDrag(dragAmount.x, dragAmount.y)
-                }
-            }
-            // Keyed on `collapsed` so the handler is rebuilt when the meaning of a tap changes.
-            .pointerInput(collapsed) {
-                // A tap on the dot only expands it. The dot is a small target, and a mis-tap
-                // must never open the microphone.
-                detectTapGestures { if (collapsed) onTapDot() else onTapBubble() }
-            }
-    )
-}
-
-@Composable
 private fun RecordingPill(style: BubbleStyle, onConfirm: () -> Unit, onCancel: () -> Unit) {
-    val content = Color(style.color.contentArgb)
-    Surface(
-        shape = CircleShape,
-        color = Color(style.color.argb),
-        shadowElevation = 6.dp,
-        modifier = Modifier.size(width = PILL_ICON_SIZE * 3, height = PILL_HEIGHT)
+    val alpha = BubbleOpacity.alphaOf(style.opacityPercent)
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(OverlayShape.PILL.widthDp.dp, OverlayShape.PILL.heightDp.dp)
+            .overlaySurface(Color(style.color.argb), alpha, 6.dp, CircleShape)
     ) {
         Row(
-            modifier = Modifier.padding(4.dp),
+            modifier = Modifier.padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            PillButton(
-                icon = Icons.Filled.Close,
-                contentDescription = "Cancel dictation",
-                content = content,
-                onClick = onCancel
-            )
-            Box(
-                modifier = Modifier.size(PILL_ICON_SIZE),
-                contentAlignment = Alignment.Center
-            ) {
-                PulsingDot(ring = content)
-            }
-            PillButton(
-                icon = Icons.Filled.Check,
-                contentDescription = "Confirm dictation",
-                content = content,
-                onClick = onConfirm
-            )
+            PillButton(Icons.Filled.Close, "Cancel dictation", style, alpha, onCancel)
+            Box(Modifier.size(24.dp))
+            PillButton(Icons.Filled.Check, "Confirm dictation", style, alpha, onConfirm)
         }
+        // Drawn on top and outside the faded surface, so it is always fully opaque.
+        PulsingDot()
+    }
+}
+
+/** Held down to record: no buttons, just an equalizer the size of the pill. */
+@Composable
+private fun HoldPill(style: BubbleStyle) {
+    val alpha = BubbleOpacity.alphaOf(style.opacityPercent)
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(OverlayShape.HOLD_PILL.widthDp.dp, OverlayShape.HOLD_PILL.heightDp.dp)
+            .overlaySurface(Color(style.color.argb), alpha, 6.dp, CircleShape)
+            .semantics { contentDescription = "Recording. Release to transcribe." }
+    ) {
+        Equalizer()
     }
 }
 
 @Composable
 private fun ProcessingPill(style: BubbleStyle) {
-    Surface(
-        shape = CircleShape,
-        color = Color(style.color.argb),
-        shadowElevation = 6.dp,
-        modifier = Modifier.size(BUBBLE_SIZE)
-    ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(12.dp)) {
-            CircularProgressIndicator(strokeWidth = 3.dp, color = Color(style.color.contentArgb))
-        }
-    }
-}
-
-@Composable
-private fun PillButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    contentDescription: String,
-    content: Color,
-    onClick: () -> Unit
-) {
-    Surface(
-        shape = CircleShape,
-        // A translucent wash of the glyph colour reads as a button on any swatch.
-        color = content.copy(alpha = 0.18f),
+    val alpha = BubbleOpacity.alphaOf(style.opacityPercent)
+    Box(
+        contentAlignment = Alignment.Center,
         modifier = Modifier
-            .size(PILL_ICON_SIZE)
-            .pointerInput(Unit) {
-                detectTapGestures { onClick() }
-            }
+            .size(OverlayShape.PROCESSING.widthDp.dp)
+            .overlaySurface(Color(style.color.argb), alpha, 6.dp, CircleShape)
+            .padding(12.dp)
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(imageVector = icon, contentDescription = contentDescription, tint = content)
-        }
+        CircularProgressIndicator(
+            strokeWidth = 3.dp,
+            color = Color(style.color.contentArgb).copy(alpha = alpha)
+        )
     }
 }
 
 /**
- * Stays red whatever the chosen colour: it is the live-microphone signal. The ring keeps it
- * visible on a red swatch, where the dot alone would vanish into the pill.
+ * Raised, not flat: a fill shifted from the pill colour, a top-lit gradient, and its own shadow
+ * falling onto the pill.
  */
 @Composable
-private fun PulsingDot(ring: Color) {
+private fun PillButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    style: BubbleStyle,
+    alpha: Float,
+    onClick: () -> Unit
+) {
+    val fill = Color(style.color.buttonArgb)
+    val light = Color(BubbleColor.mix(style.color.buttonArgb, 0xFFFFFFFFL, 0.18))
+    val dark = Color(BubbleColor.mix(style.color.buttonArgb, 0xFF000000L, 0.18))
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(PILL_BUTTON_SIZE)
+            .shadow(
+                elevation = 5.dp,
+                shape = CircleShape,
+                clip = false,
+                ambientColor = Color.Black.copy(alpha = alpha),
+                spotColor = Color.Black.copy(alpha = alpha)
+            )
+            .background(
+                Brush.verticalGradient(
+                    listOf(light.copy(alpha = alpha), fill.copy(alpha = alpha), dark.copy(alpha = alpha))
+                ),
+                CircleShape
+            )
+            .pointerInput(Unit) { detectTapGestures { onClick() } }
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = Color(style.color.contentArgb).copy(alpha = alpha)
+        )
+    }
+}
+
+/**
+ * Pulses in size, not alpha, so it stays fully opaque as agreed. The white ring keeps it visible
+ * on the red swatch.
+ */
+@Composable
+private fun PulsingDot() {
     val transition = rememberInfiniteTransition(label = "recording-pulse")
-    val alpha by transition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 1f,
+    val scale by transition.animateFloat(
+        initialValue = 0.8f,
+        targetValue = 1.15f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 600, easing = LinearEasing),
+            animation = tween(durationMillis = 600, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "alpha"
+        label = "scale"
     )
     Box(
         modifier = Modifier
-            .size(16.dp)
-            .border(2.dp, ring, CircleShape)
+            .size(18.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .border(2.dp, Color.White, CircleShape)
             .padding(2.dp)
-            .alpha(alpha)
-            .background(MaterialTheme.colorScheme.error, CircleShape)
+            .background(RECORDING_RED, CircleShape)
     )
+}
+
+/** Five bars rising and falling out of step. Decorative, not driven by the audio level. */
+@Composable
+private fun Equalizer() {
+    val transition = rememberInfiniteTransition(label = "equalizer")
+    val periods = listOf(420, 560, 360, 500, 440)
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.height(36.dp)
+    ) {
+        periods.forEachIndexed { index, period ->
+            val fraction by transition.animateFloat(
+                initialValue = if (index % 2 == 0) 0.25f else 1f,
+                targetValue = if (index % 2 == 0) 1f else 0.3f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = period, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "bar$index"
+            )
+            Box(
+                modifier = Modifier
+                    .width(6.dp)
+                    .height(36.dp * fraction)
+                    .background(RECORDING_RED, RoundedCornerShape(3.dp))
+            )
+        }
+    }
 }
 
 /** The drag-to-dismiss target, drawn in its own overlay window at the bottom of the screen. */
@@ -261,5 +410,3 @@ fun DismissTarget(highlighted: Boolean) {
         }
     }
 }
-
-val DISMISS_TARGET_SIZE = 64.dp

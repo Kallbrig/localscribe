@@ -10,6 +10,8 @@ import dev.chaseallbright.localscribe.ui.overlay.BubbleColor
 import dev.chaseallbright.localscribe.ui.overlay.BubbleOpacity
 import dev.chaseallbright.localscribe.ui.overlay.BubbleStyle
 import dev.chaseallbright.localscribe.ui.overlay.CollapseDelay
+import dev.chaseallbright.localscribe.ui.overlay.DismissDuration
+import dev.chaseallbright.localscribe.feedback.StarPromptPolicy
 
 /**
  * Small SharedPreferences-backed settings store. Unset model tiers fall back to
@@ -59,6 +61,29 @@ class AppPreferences(context: Context) {
         get() = BubbleOpacity.snap(prefs.getInt(KEY_BUBBLE_OPACITY, BubbleOpacity.DEFAULT_PERCENT))
         set(value) = prefs.edit().putInt(KEY_BUBBLE_OPACITY, BubbleOpacity.snap(value)).apply()
 
+    var dismissDuration: DismissDuration
+        get() = prefs.getString(KEY_DISMISS_DURATION, null)
+            ?.let { id -> DismissDuration.entries.find { it.id == id } }
+            ?: DismissDuration.DEFAULT
+        set(value) = prefs.edit().putString(KEY_DISMISS_DURATION, value.id).apply()
+
+    /** Wall-clock millis until which a timed dismissal hides the bubble; 0 when none. */
+    var dismissedUntil: Long
+        get() = prefs.getLong(KEY_DISMISSED_UNTIL, 0L)
+        set(value) = prefs.edit().putLong(KEY_DISMISSED_UNTIL, value).apply()
+
+    var starPrompt: StarPromptPolicy
+        get() = StarPromptPolicy(
+            uses = prefs.getInt(KEY_STAR_USES, 0),
+            nextAt = prefs.getInt(KEY_STAR_NEXT_AT, StarPromptPolicy.INTERVAL),
+            finished = prefs.getBoolean(KEY_STAR_FINISHED, false)
+        )
+        set(value) = prefs.edit()
+            .putInt(KEY_STAR_USES, value.uses)
+            .putInt(KEY_STAR_NEXT_AT, value.nextAt)
+            .putBoolean(KEY_STAR_FINISHED, value.finished)
+            .apply()
+
     val bubbleStyle: BubbleStyle
         get() = BubbleStyle(bubbleColor, bubbleOpacityPercent)
 
@@ -84,6 +109,11 @@ class AppPreferences(context: Context) {
         const val KEY_COLLAPSE_DELAY = "bubble_collapse_delay"
         const val KEY_BUBBLE_COLOR = "bubble_color"
         const val KEY_BUBBLE_OPACITY = "bubble_opacity_percent"
+        const val KEY_DISMISS_DURATION = "bubble_dismiss_duration"
+        const val KEY_DISMISSED_UNTIL = "bubble_dismissed_until"
+        const val KEY_STAR_USES = "star_prompt_uses"
+        const val KEY_STAR_NEXT_AT = "star_prompt_next_at"
+        const val KEY_STAR_FINISHED = "star_prompt_finished"
         val BUBBLE_KEYS = setOf(KEY_COLLAPSE_DELAY, KEY_BUBBLE_COLOR, KEY_BUBBLE_OPACITY)
     }
 }

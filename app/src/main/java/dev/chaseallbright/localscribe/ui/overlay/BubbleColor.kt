@@ -24,6 +24,13 @@ enum class BubbleColor(val id: String, val displayName: String, val argb: Long) 
             LIGHT_CONTENT
         }
 
+    /**
+     * Fill for the pill's cancel and confirm buttons: the pill colour shifted toward its glyph
+     * colour, so the buttons read as separate raised objects rather than a faint wash.
+     */
+    val buttonArgb: Long
+        get() = if (contentArgb == LIGHT_CONTENT) mix(argb, 0xFFFFFFFFL, 0.22) else mix(argb, 0xFF000000L, 0.14)
+
     companion object {
         /** PURPLE is Material's baseline primary -- what the bubble always was. */
         val DEFAULT = PURPLE
@@ -36,6 +43,16 @@ enum class BubbleColor(val id: String, val displayName: String, val argb: Long) 
             val la = relativeLuminance(a)
             val lb = relativeLuminance(b)
             return (maxOf(la, lb) + 0.05) / (minOf(la, lb) + 0.05)
+        }
+
+        /** Linear blend of two opaque colours, [amount] of the way from [from] to [to]. */
+        fun mix(from: Long, to: Long, amount: Double): Long {
+            fun channel(shift: Int): Long {
+                val a = (from shr shift) and 0xFF
+                val b = (to shr shift) and 0xFF
+                return Math.round(a + (b - a) * amount) and 0xFF
+            }
+            return 0xFF000000L or (channel(16) shl 16) or (channel(8) shl 8) or channel(0)
         }
 
         private fun relativeLuminance(argb: Long): Double {

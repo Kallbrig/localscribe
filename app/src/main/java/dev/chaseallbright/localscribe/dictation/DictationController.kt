@@ -50,6 +50,48 @@ object DictationController {
         wake.onTransition(previous, newState)
     }
 
+    private val _fieldFocused = MutableStateFlow(false)
+
+    /** Whether an editable field in another app is focused -- lets "Show bubble" act at once. */
+    val fieldFocused: StateFlow<Boolean> = _fieldFocused.asStateFlow()
+
+    fun setFieldFocused(focused: Boolean) {
+        _fieldFocused.value = focused
+    }
+
+    private val _recordingIsHold = MutableStateFlow(false)
+
+    /**
+     * Whether the current recording was started by press-and-hold. Set by the recording service
+     * when it starts, so it travels with the recording rather than being inferred by the overlay.
+     */
+    val recordingIsHold: StateFlow<Boolean> = _recordingIsHold.asStateFlow()
+
+    fun setRecordingIsHold(hold: Boolean) {
+        _recordingIsHold.value = hold
+    }
+
+    private val _imeTop = MutableStateFlow<Int?>(null)
+
+    /**
+     * Top edge of the on-screen keyboard in screen pixels, or null when none is showing.
+     * Application overlays are drawn below the keyboard, so the overlay keeps clear of it.
+     */
+    val imeTop: StateFlow<Int?> = _imeTop.asStateFlow()
+
+    fun setImeTop(top: Int?) {
+        _imeTop.value = top
+    }
+
+    private val _starPromptRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    /** Emits when the GitHub star card is due; the overlay service draws it. */
+    val starPromptRequests: SharedFlow<Unit> = _starPromptRequests.asSharedFlow()
+
+    fun requestStarPrompt() {
+        _starPromptRequests.tryEmit(Unit)
+    }
+
     /** An editable field gained focus -- including a second field while already Idle. */
     fun onFieldFocused() = wake.onFieldFocused()
 

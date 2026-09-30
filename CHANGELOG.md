@@ -6,6 +6,21 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and s
 
 ### Added
 
+- **Press and hold the mic bubble to dictate.** Hold it still for a moment and recording starts
+  straight away, with an equalizer in place of the buttons; let go and it transcribes -- no
+  check mark. A quick tap still works as before. A press released almost immediately is treated
+  as a tap rather than transcribing a fraction of a second of silence, and holding the small dot
+  only brings the bubble back: it never starts recording.
+- **Choose how long dragging to the X hides the bubble**: until you tap into another text field
+  (as before), or for 1, 5, 15 or 30 minutes, or an hour. After a timed hide it comes back the
+  next time you tap into a text field. The phone gives a short tick when the bubble reaches the
+  X and a firmer one when you drop it there.
+- **Hide bubble and Show bubble buttons in LocalScribe's notification.** Hide works like
+  dragging to the X, once, without changing your setting. Show brings it back straight away.
+- **An occasional request for a GitHub star.** After every 100 dictations, a small card asks
+  whether you would star the project. "Take me there" opens the page in your browser -- LocalScribe
+  itself still sends nothing -- and it, like "Don't remind me", means you will never be asked
+  again. "Remind me later" waits another 100.
 - **The mic bubble gets out of the way.** A few seconds after it appears -- 3 by default,
   adjustable in Settings from immediately to a minute, or never -- it shrinks to a small dot.
   Tap the dot to bring the bubble back; it will not start recording from the dot, so a stray
@@ -37,6 +52,16 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and s
 
 ### Fixed
 
+- **The recording controls could run off the edge of the screen.** Pressing the bubble near the
+  right edge expanded the controls outwards, partly off screen. Everything the bubble turns into
+  now opens centred on it and slides inward to stay fully visible, and the bubble goes back to its
+  spot afterwards. The bubble can no longer be dragged under the status bar, the navigation bar,
+  or the keyboard -- which it was disappearing behind, along with the X used to hide it.
+- **A square shadow showed behind the recording controls.** Shadows were being cut off at the
+  edge of the space the controls were drawn in. They now have room, and fade with your opacity
+  setting.
+- **The cancel and confirm buttons now stand out** from the controls behind them, raised with
+  their own shadow, and the red recording light stays fully visible whatever opacity you choose.
 - **Error messages are now written for people.** When something went wrong, LocalScribe showed
   whatever text the underlying error happened to carry -- you could be told
   `database or disk is full (code 13 SQLITE_FULL[13])` after a dictation, or
