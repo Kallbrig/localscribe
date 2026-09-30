@@ -52,7 +52,10 @@ cannot be installed over it.
 
 The release notes are worth writing by hand for a stable release. `generate_release_notes`
 lists commits, which is fine for a beta and thin for something a user is being asked to
-install.
+install. Write them to `docs/release-notes/vX.Y.Z.md` before tagging: the workflow publishes
+that file as the release body, with the generated commit list after it. See
+[`release-notes/v0.2.0.md`](release-notes/v0.2.0.md) for the shape -- what's new, bug fixes,
+under the hood, known limitations.
 
 ## What the workflow enforces
 

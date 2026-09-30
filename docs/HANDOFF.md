@@ -2,7 +2,7 @@
 
 _Last updated: 2026-09-30. Repo: https://github.com/Kallbrig/localscribe (public). Default branch `master`._
 
-**Stable: `v0.1.7`. In flight: `v0.2.0-beta.6`.** Unit suite: 278 tests, all passing.
+**Stable: `v0.2.0` ("The UI Update").** Unit suite: 278 tests, all passing.
 
 Verified on a Galaxy S25 Ultra (Android 16, 8 cores, 11.4 GB RAM, arm64-v8a).
 
@@ -36,6 +36,21 @@ installed v0.1.1 or later. Back both up off that machine.
 ---
 
 ## What changed in this session
+
+### `v0.2.0` shipped as stable, with one more fix
+
+Chase ran beta.6 and saw a small octagon behind the mic, slightly darker than the rest of the
+bubble. It was the bubble's own elevation shadow: Android renders it beneath the whole shape, and
+a circle's shadow core is a polygon, so a translucent fill let it show through. Every shape with a
+shadow had it below 100% opacity -- dot, pills, spinner, pill buttons -- the bubble just shows it
+most, with the mic centred over it. Shadows are now drawn by `outlineShadow`, which clips the
+shape's outline out before drawing (`clipOutPath` + `setShadowLayer`, hardware-accelerated from
+API 28). The dismiss target was 80% opaque with a platform shadow, so it was made opaque rather
+than converted. **This fix has not been seen on a device**; it went straight into the stable tag
+at Chase's direction.
+
+Hand-written release notes now live in `docs/release-notes/<tag>.md` and the Release workflow
+publishes them as the body when present.
 
 ### Hold to record, an overlay that stays on screen, timed dismissal, a star card (`v0.2.0-beta.6`)
 
