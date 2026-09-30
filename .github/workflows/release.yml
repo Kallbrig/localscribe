@@ -132,9 +132,22 @@ jobs:
         working-directory: app/build/outputs/apk/release
         run: sha256sum app-release.apk > app-release.apk.sha256
 
+      - name: Find hand-written release notes
+        id: notes
+        run: |
+          # A stable release deserves notes written for the people installing it; a file at
+          # docs/release-notes/<tag>.md becomes the body, with GitHub's commit list after it.
+          # Betas usually have none, and get the commit list alone.
+          notes="docs/release-notes/${{ github.ref_name }}.md"
+          if [ -f "$notes" ]; then
+            echo "path=$notes" >> "$GITHUB_OUTPUT"
+            echo "Using $notes"
+          fi
+
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          body_path: ${{ steps.notes.outputs.path }}
           generate_release_notes: true
           prerelease: ${{ steps.channel.outputs.prerelease }}
           make_latest: ${{ steps.channel.outputs.make_latest }}

@@ -4,6 +4,10 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and s
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-30
+
+**The UI Update.** Release notes: [docs/release-notes/v0.2.0.md](docs/release-notes/v0.2.0.md).
+
 ### Added
 
 - **Press and hold the mic bubble to dictate.** Hold it still for a moment and recording starts
@@ -60,6 +64,9 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and s
 - **A square shadow showed behind the recording controls.** Shadows were being cut off at the
   edge of the space the controls were drawn in. They now have room, and fade with your opacity
   setting.
+- **An octagon showed through the bubble behind the mic** whenever opacity was below 100%. It
+  was the bubble's own shadow, which Android draws underneath the whole shape; a see-through
+  bubble let it show. Shadows are now drawn only around the outside of each shape.
 - **The cancel and confirm buttons now stand out** from the controls behind them, raised with
   their own shadow, and the red recording light stays fully visible whatever opacity you choose.
 - **Error messages are now written for people.** When something went wrong, LocalScribe showed

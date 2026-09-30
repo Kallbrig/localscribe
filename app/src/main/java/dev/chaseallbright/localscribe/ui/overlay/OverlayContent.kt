@@ -34,7 +34,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.graphics.asAndroidPath
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -198,14 +204,44 @@ fun OverlayContent(
  */
 private fun Modifier.overlaySurface(color: Color, alpha: Float, elevation: Dp, shape: Shape): Modifier =
     this
-        .shadow(
-            elevation = elevation,
-            shape = shape,
-            clip = false,
-            ambientColor = Color.Black.copy(alpha = alpha),
-            spotColor = Color.Black.copy(alpha = alpha)
-        )
+        .outlineShadow(elevation, shape, alpha)
         .background(color.copy(alpha = alpha), shape)
+
+/**
+ * A drop shadow drawn only outside [shape].
+ *
+ * Android's elevation shadow (`Modifier.shadow`) is rendered beneath the whole shape, and for a
+ * circle its dark core is a polygon. Under an opaque fill that is invisible; under a translucent
+ * one it shows through as an octagon behind the mic. Here the shape's own outline is clipped out
+ * before the shadow is drawn, so nothing is ever painted under the fill. `setShadowLayer` on a
+ * path is hardware-accelerated from API 28, which is this app's minimum.
+ */
+private fun Modifier.outlineShadow(elevation: Dp, shape: Shape, alpha: Float): Modifier =
+    // Cached per size: the pills animate continuously, and the path and paint never change.
+    drawWithCache {
+        val blur = elevation.toPx()
+        val path = Path().apply {
+            addOutline(shape.createOutline(size, layoutDirection, this@drawWithCache))
+        }.asAndroidPath()
+        val shadowArgb = Color.Black.copy(alpha = (SHADOW_ALPHA * alpha).coerceIn(0f, 1f)).toArgb()
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = shadowArgb
+            if (blur > 0f) setShadowLayer(blur, 0f, blur / 2f, shadowArgb)
+        }
+        onDrawBehind {
+            if (blur <= 0f || alpha <= 0f) return@onDrawBehind
+            drawIntoCanvas { canvas ->
+                val native = canvas.nativeCanvas
+                native.save()
+                native.clipOutPath(path)
+                native.drawPath(path, paint)
+                native.restore()
+            }
+        }
+    }
+
+/** Peak darkness of a shadow at full opacity, roughly Material's key-plus-ambient at rest. */
+private const val SHADOW_ALPHA = 0.35f
 
 /**
  * The idle bubble or its collapsed dot, with no gestures. Shared with the Settings preview so the
@@ -309,13 +345,8 @@ private fun PillButton(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .size(PILL_BUTTON_SIZE)
-            .shadow(
-                elevation = 5.dp,
-                shape = CircleShape,
-                clip = false,
-                ambientColor = Color.Black.copy(alpha = alpha),
-                spotColor = Color.Black.copy(alpha = alpha)
-            )
+            // Stronger than the pill's own, so the buttons read as raised above it.
+            .outlineShadow(5.dp, CircleShape, alpha * 1.4f)
             .background(
                 Brush.verticalGradient(
                     listOf(light.copy(alpha = alpha), fill.copy(alpha = alpha), dark.copy(alpha = alpha))
@@ -396,7 +427,8 @@ private fun Equalizer() {
 fun DismissTarget(highlighted: Boolean) {
     Surface(
         shape = CircleShape,
-        color = if (highlighted) MaterialTheme.colorScheme.error else Color(0xCC303030),
+        // Opaque: a translucent fill would show its own elevation shadow through it.
+        color = if (highlighted) MaterialTheme.colorScheme.error else Color(0xFF303030),
         shadowElevation = 4.dp,
         modifier = Modifier
             .size(if (highlighted) DISMISS_TARGET_SIZE else DISMISS_TARGET_SIZE - 8.dp)
