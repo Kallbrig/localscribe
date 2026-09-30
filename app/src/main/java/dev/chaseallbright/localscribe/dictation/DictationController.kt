@@ -50,6 +50,24 @@ object DictationController {
         wake.onTransition(previous, newState)
     }
 
+    private val _fieldFocused = MutableStateFlow(false)
+
+    /** Whether an editable field in another app is focused -- lets "Show bubble" act at once. */
+    val fieldFocused: StateFlow<Boolean> = _fieldFocused.asStateFlow()
+
+    fun setFieldFocused(focused: Boolean) {
+        _fieldFocused.value = focused
+    }
+
+    private val _starPromptRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    /** Emits when the GitHub star card is due; the overlay service draws it. */
+    val starPromptRequests: SharedFlow<Unit> = _starPromptRequests.asSharedFlow()
+
+    fun requestStarPrompt() {
+        _starPromptRequests.tryEmit(Unit)
+    }
+
     /** An editable field gained focus -- including a second field while already Idle. */
     fun onFieldFocused() = wake.onFieldFocused()
 

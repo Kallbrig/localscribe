@@ -13,7 +13,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import dev.chaseallbright.localscribe.ui.overlay.BubbleColor
@@ -21,6 +20,7 @@ import dev.chaseallbright.localscribe.ui.overlay.BubbleFace
 import dev.chaseallbright.localscribe.ui.overlay.BubbleOpacity
 import dev.chaseallbright.localscribe.ui.overlay.BubbleStyle
 import dev.chaseallbright.localscribe.ui.overlay.CollapseDelay
+import dev.chaseallbright.localscribe.ui.overlay.DismissDuration
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -498,6 +498,10 @@ private fun MicBubbleSettings(preferences: AppPreferences) {
         mutableFloatStateOf(BubbleOpacity.indexOf(preferences.bubbleOpacityPercent).toFloat())
     }
     var color by remember { mutableStateOf(preferences.bubbleColor) }
+    var dismissIndex by remember {
+        mutableFloatStateOf(DismissDuration.entries.indexOf(preferences.dismissDuration).toFloat())
+    }
+    val dismissDuration = DismissDuration.entries[dismissIndex.roundToInt()]
     val delay = CollapseDelay.entries[delayIndex.roundToInt()]
     val opacityPercent = BubbleOpacity.percentAt(opacityIndex.roundToInt())
     val style = BubbleStyle(color, opacityPercent)
@@ -511,7 +515,6 @@ private fun MicBubbleSettings(preferences: AppPreferences) {
         Row(
             modifier = Modifier
                 .padding(16.dp)
-                .graphicsLayer { alpha = BubbleOpacity.alphaOf(opacityPercent) }
                 .clearAndSetSemantics {
                     contentDescription = "Preview: ${color.displayName} bubble at $opacityPercent% opacity"
                 },
@@ -525,8 +528,9 @@ private fun MicBubbleSettings(preferences: AppPreferences) {
 
     Text(
         text = "Shrinks to a dot when you have not used it for a while. Tap the dot to bring it " +
-            "back. Drag the bubble onto the X at the bottom of the screen to hide it until " +
-            "you tap into another text field.",
+            "back, or press and hold the bubble to record and let go to transcribe. Drag it " +
+            "onto the X at the bottom of the screen to hide it. The notification also has " +
+            "Hide and Show buttons.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
@@ -569,6 +573,32 @@ private fun MicBubbleSettings(preferences: AppPreferences) {
             }
     )
     Text(text = "$opacityPercent%", style = MaterialTheme.typography.bodyMedium)
+
+    Text(text = "Hide for", style = MaterialTheme.typography.titleSmall)
+    Slider(
+        value = dismissIndex,
+        onValueChange = { dismissIndex = it },
+        onValueChangeFinished = {
+            preferences.dismissDuration = DismissDuration.entries[dismissIndex.roundToInt()]
+        },
+        valueRange = 0f..(DismissDuration.entries.size - 1).toFloat(),
+        steps = DismissDuration.entries.size - 2,
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics {
+                contentDescription = "Hide the mic bubble for"
+                stateDescription = dismissDuration.displayName
+            }
+    )
+    Text(
+        text = if (dismissDuration == DismissDuration.UNTIL_NEXT_FIELD) {
+            "Dragging it to the X hides it until you tap into another text field."
+        } else {
+            "Dragging it to the X hides it for ${dismissDuration.displayName}, then it comes back " +
+                "the next time you tap into a text field."
+        },
+        style = MaterialTheme.typography.bodyMedium
+    )
 
     Text(text = "Color", style = MaterialTheme.typography.titleSmall)
     Column(

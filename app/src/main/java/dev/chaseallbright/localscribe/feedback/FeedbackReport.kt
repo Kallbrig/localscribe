@@ -39,7 +39,8 @@ data class DeviceFacts(
  */
 object FeedbackReport {
 
-    const val ISSUE_BASE_URL = "https://github.com/Kallbrig/localscribe/issues/new"
+    const val REPO_URL = "https://github.com/Kallbrig/localscribe"
+    const val ISSUE_BASE_URL = "$REPO_URL/issues/new"
 
     /** A URL cannot carry an essay; past this the description is cut. */
     const val MAX_USER_TEXT = 2000

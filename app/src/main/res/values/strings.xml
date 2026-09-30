@@ -9,5 +9,7 @@
     <string name="dictation_notification_processing">Cleaning up your dictation…</string>
     <string name="dictation_notification_limit_reached">Recording limit reached — cleaning up…</string>
     <string name="overlay_notification_text">Dictation bubble is active</string>
+    <string name="overlay_notification_hide">Hide bubble</string>
+    <string name="overlay_notification_show">Show bubble</string>
     <string name="cleanup_fallback_toast">AI cleanup unavailable — inserted with basic cleanup</string>
 </resources>

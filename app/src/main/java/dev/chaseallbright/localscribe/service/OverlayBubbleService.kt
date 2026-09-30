@@ -1,14 +1,26 @@
 package dev.chaseallbright.localscribe.service
 
+import android.annotation.SuppressLint
 import android.app.Notification
+import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.res.Configuration
 import android.graphics.PixelFormat
+import android.net.Uri
+import android.os.Build
 import android.os.IBinder
+import android.util.DisplayMetrics
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
 import android.view.View
+import android.view.WindowInsets
 import android.view.WindowManager
+import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
@@ -18,6 +30,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -36,23 +50,29 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import dev.chaseallbright.localscribe.DICTATION_NOTIFICATION_CHANNEL_ID
 import dev.chaseallbright.localscribe.R
+import dev.chaseallbright.localscribe.dictation.BubbleDismissal
 import dev.chaseallbright.localscribe.dictation.DictationController
 import dev.chaseallbright.localscribe.dictation.DictationUiState
+import dev.chaseallbright.localscribe.feedback.FeedbackReport
 import dev.chaseallbright.localscribe.settings.AppPreferences
-import dev.chaseallbright.localscribe.ui.overlay.BUBBLE_SIZE
+import dev.chaseallbright.localscribe.ui.overlay.Bounds
 import dev.chaseallbright.localscribe.ui.overlay.BubbleCollapse
 import dev.chaseallbright.localscribe.ui.overlay.BubbleStyle
 import dev.chaseallbright.localscribe.ui.overlay.CollapseDelay
 import dev.chaseallbright.localscribe.ui.overlay.DISMISS_TARGET_SIZE
-import dev.chaseallbright.localscribe.ui.overlay.DOT_TOUCH_SIZE
 import dev.chaseallbright.localscribe.ui.overlay.DismissTarget
 import dev.chaseallbright.localscribe.ui.overlay.DismissZone
-import dev.chaseallbright.localscribe.ui.overlay.DragHandlers
 import dev.chaseallbright.localscribe.ui.overlay.OverlayContent
+import dev.chaseallbright.localscribe.ui.overlay.OverlayGeometry
+import dev.chaseallbright.localscribe.ui.overlay.OverlayGestures
+import dev.chaseallbright.localscribe.ui.overlay.OverlayShape
+import dev.chaseallbright.localscribe.ui.overlay.PxPoint
+import dev.chaseallbright.localscribe.ui.overlay.SHADOW_PADDING
+import dev.chaseallbright.localscribe.ui.overlay.StarPromptCard
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -61,8 +81,13 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * Draggable idle bubble + recording/processing pill, hosted directly in a WindowManager overlay.
- * Also owns the bubble's collapse timer and the drag-to-dismiss target.
+ * Hosts every overlay window: the bubble (with its dot, pills and spinner), the drag-to-dismiss
+ * target, and the occasional star card. Owns the collapse timer, the bubble's position, and the
+ * hold-to-record gesture's lifecycle.
+ *
+ * Position is a single anchor -- the bubble's centre in screen pixels. Each shape is centred on it
+ * and clamped into a safe area, and the window is sized explicitly to the shape plus shadow room,
+ * so nothing ever grows off the screen and the bubble returns to its spot after a dictation.
  */
 class OverlayBubbleService :
     Service(),
@@ -78,9 +103,9 @@ class OverlayBubbleService :
 
     override val viewModelStore = ViewModelStore()
 
-    private var windowManager: WindowManager? = null
-    private var composeView: ComposeView? = null
-    private var layoutParams: WindowManager.LayoutParams? = null
+    private lateinit var windowManager: WindowManager
+    private var rootView: RawTouchFrame? = null
+    private lateinit var layoutParams: WindowManager.LayoutParams
 
     private lateinit var preferences: AppPreferences
     private var unobservePreferences: (() -> Unit)? = null
@@ -88,18 +113,23 @@ class OverlayBubbleService :
     private lateinit var collapseDelay: MutableStateFlow<CollapseDelay>
     private val collapse = MutableStateFlow(BubbleCollapse())
 
-    /**
-     * True when the dot is what is actually on screen. The collapse state alone is not enough:
-     * a timer may expire during a recording, and the pill must not jump because of it.
-     */
-    private lateinit var showingDot: StateFlow<Boolean>
+    /** True while a hold-to-record is in progress, until its dictation leaves recording. */
+    private val holding = MutableStateFlow(false)
+    private var holdReleased = false
+    private var holdSawRecording = false
+
+    private lateinit var shape: StateFlow<OverlayShape>
+    private lateinit var bounds: Bounds
+    private lateinit var anchor: PxPoint
 
     private var dismissView: ComposeView? = null
     private val overDismissTarget = MutableStateFlow(false)
-    private var dragStartScreen = IntArray(2)
-    private var dragStartX = 0
-    private var dragStartY = 0
     private var dismissTargetCenter: Pair<Float, Float>? = null
+    private var dragStartRawX = 0f
+    private var dragStartRawY = 0f
+    private var dragStartAnchor = PxPoint(0, 0)
+
+    private var starCardView: FrameLayout? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -107,6 +137,7 @@ class OverlayBubbleService :
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         preferences = AppPreferences(this)
         style = MutableStateFlow(preferences.bubbleStyle)
         collapseDelay = MutableStateFlow(preferences.collapseDelay)
@@ -114,12 +145,23 @@ class OverlayBubbleService :
             style.value = preferences.bubbleStyle
             collapseDelay.value = preferences.collapseDelay
         }
-        showingDot = combine(collapse, DictationController.state) { c, state ->
+        bounds = computeBounds()
+        anchor = OverlayGeometry.clampAnchor(
+            INITIAL_X + px(OverlayShape.BUBBLE.widthDp) / 2, INITIAL_Y + px(OverlayShape.BUBBLE.widthDp) / 2, px(OverlayShape.BUBBLE.widthDp), bounds
+        )
+
+        // A timer may expire during a recording; the dot is only drawn when idle, so the pill
+        // never changes because of it.
+        val showingDot = combine(collapse, DictationController.state) { c, state ->
             c.collapsed && (state == DictationUiState.Idle || state is DictationUiState.Error)
-        }.distinctUntilChanged().stateIn(lifecycleScope, SharingStarted.Eagerly, false)
+        }
+        shape = combine(DictationController.state, showingDot, holding) { state, dot, hold ->
+            OverlayShape.of(state, dot, hold)
+        }.distinctUntilChanged().stateIn(lifecycleScope, SharingStarted.Eagerly, OverlayShape.NONE)
+
         startForegroundWithNotification()
         addOverlayView()
-        startCollapseTimer()
+        startCollectors()
     }
 
     private fun startForegroundWithNotification() {
@@ -129,6 +171,8 @@ class OverlayBubbleService :
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setOngoing(true)
             .setSilent(true)
+            .addAction(0, getString(R.string.overlay_notification_hide), selfIntent(ACTION_HIDE_BUBBLE, 1))
+            .addAction(0, getString(R.string.overlay_notification_show), selfIntent(ACTION_SHOW_BUBBLE, 2))
             .build()
 
         ServiceCompat.startForeground(
@@ -139,11 +183,34 @@ class OverlayBubbleService :
         )
     }
 
+    private fun selfIntent(action: String, requestCode: Int): PendingIntent = PendingIntent.getService(
+        this,
+        requestCode,
+        Intent(this, OverlayBubbleService::class.java).setAction(action),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+    )
+
     override fun onBind(intent: Intent?): IBinder? = null
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            // The same as a drop on the X, using the configured duration, once.
+            ACTION_HIDE_BUBBLE -> BubbleDismissal.dismiss(preferences)
+            ACTION_SHOW_BUBBLE -> BubbleDismissal.restore(preferences)
+        }
+        return START_STICKY
+    }
 
-    private fun startCollapseTimer() {
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Rotation changes the safe area; keep the bubble inside the new one.
+        bounds = computeBounds()
+        anchor = OverlayGeometry.clampAnchor(anchor.x, anchor.y, px(OverlayShape.BUBBLE.widthDp), bounds)
+        dismissTargetCenter = null
+        applyLayout()
+    }
+
+    private fun startCollectors() {
         lifecycleScope.launch {
             DictationController.bubbleWake.collect {
                 collapse.update { it.reduce(BubbleCollapse.Event.Wake) }
@@ -160,137 +227,238 @@ class OverlayBubbleService :
                     collapse.update { it.reduce(BubbleCollapse.Event.TimerExpired(generation)) }
                 }
         }
+        lifecycleScope.launch { shape.collect { applyLayout() } }
+        lifecycleScope.launch { DictationController.state.collect(::trackHold) }
         lifecycleScope.launch {
-            // The window is WRAP_CONTENT, so it shrinks from its top-left corner. Shift it by half
-            // the size difference so the dot sits where the bubble's centre was, and back again.
-            val offsetPx = ((BUBBLE_SIZE - DOT_TOUCH_SIZE).value * resources.displayMetrics.density / 2).toInt()
-            var wasDot = showingDot.value
-            showingDot.collect { dot ->
-                if (dot == wasDot) return@collect
-                wasDot = dot
-                val params = layoutParams ?: return@collect
-                val shift = if (dot) offsetPx else -offsetPx
-                params.x += shift
-                params.y += shift
-                // A wake mid-drag (another field took focus) can land here. Move the drag's
-                // reference point with the window, or the hit test and the post-dismiss restore
-                // are both off by the shift.
-                if (collapse.value.dragging) {
-                    dragStartX += shift
-                    dragStartY += shift
-                    dragStartScreen[0] += shift
-                    dragStartScreen[1] += shift
-                }
-                composeView?.let { runCatching { windowManager?.updateViewLayout(it, params) } }
+            DictationController.starPromptRequests.collect {
+                // Let the dictated text land before anything appears over it.
+                delay(STAR_CARD_DELAY_MS)
+                showStarCard()
             }
         }
     }
 
+    // --- Layout -------------------------------------------------------------------------------
+
+    private fun px(dp: Int): Int = (dp * resources.displayMetrics.density).toInt()
+    private fun px(dp: Dp): Int = px(dp.value.toInt())
+
+    /**
+     * The safe area: 16 dp in from the sides, below the status bar -- a swipe there opens the
+     * notification shade -- and above the navigation bar or gesture area.
+     */
+    private fun computeBounds(): Bounds {
+        val margin = px(EDGE_MARGIN_DP)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val metrics = windowManager.currentWindowMetrics
+            val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
+                WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
+            )
+            val screen = metrics.bounds
+            return Bounds(
+                left = screen.left + insets.left + margin,
+                top = screen.top + insets.top + margin,
+                right = screen.right - insets.right - margin,
+                bottom = screen.bottom - insets.bottom - margin
+            )
+        }
+        val display = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        windowManager.defaultDisplay.getRealMetrics(display)
+        return Bounds(
+            left = margin,
+            top = systemDimension("status_bar_height") + margin,
+            right = display.widthPixels - margin,
+            bottom = display.heightPixels - systemDimension("navigation_bar_height") - margin
+        )
+    }
+
+    @SuppressLint("DiscouragedApi", "InternalInsetResource")
+    private fun systemDimension(name: String): Int {
+        val id = resources.getIdentifier(name, "dimen", "android")
+        return if (id > 0) resources.getDimensionPixelSize(id) else 0
+    }
+
+    /** Sizes and places the bubble window for the current shape. */
+    private fun applyLayout() {
+        val view = rootView ?: return
+        val current = shape.value
+        if (current == OverlayShape.NONE) {
+            layoutParams.width = 1
+            layoutParams.height = 1
+            layoutParams.flags = layoutParams.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        } else {
+            val pad = px(SHADOW_PADDING)
+            val width = px(current.widthDp)
+            val height = px(current.heightDp)
+            val topLeft = OverlayGeometry.placeCentered(anchor.x, anchor.y, width, height, bounds)
+            layoutParams.x = topLeft.x - pad
+            layoutParams.y = topLeft.y - pad
+            layoutParams.width = width + pad * 2
+            layoutParams.height = height + pad * 2
+            layoutParams.flags = layoutParams.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        }
+        runCatching { windowManager.updateViewLayout(view, layoutParams) }
+    }
+
     private fun addOverlayView() {
-        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        windowManager = wm
-
-        val overlayType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            overlayType,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+        layoutParams = WindowManager.LayoutParams(
+            1,
+            1,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = 100
-            y = 300
+            // Screen coordinates throughout, cutout included, so bounds and raw touches agree.
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
-        layoutParams = params
 
-        val view = ComposeView(this).apply {
+        val compose = ComposeView(this).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
             setContent {
                 val state by DictationController.state.collectAsStateWithLifecycle()
+                val currentShape by shape.collectAsStateWithLifecycle()
                 val currentStyle by style.collectAsStateWithLifecycle()
-                val dot by showingDot.collectAsStateWithLifecycle()
-                val drag = remember {
-                    DragHandlers(
+                val gestures = remember {
+                    OverlayGestures(
+                        onTap = ::onTap,
                         onDragStart = ::onDragStart,
-                        onDrag = { dx, dy -> onDrag(dx, dy) },
-                        onDragEnd = { onDragEnd(dropped = true) },
-                        onDragCancel = { onDragEnd(dropped = false) }
+                        onDragMove = ::onDragMove,
+                        onDragEnd = ::onDragEnd,
+                        onHoldStart = ::onHoldStart,
+                        onHoldEnd = ::onHoldEnd
                     )
                 }
                 MaterialTheme {
                     OverlayContent(
                         state = state,
+                        shape = currentShape,
                         style = currentStyle,
-                        collapsed = dot,
-                        drag = drag,
-                        onTapBubble = { sendAction(DictationForegroundService.ACTION_START) },
-                        onTapDot = { collapse.update { it.reduce(BubbleCollapse.Event.Expand) } },
+                        gestures = gestures,
                         onConfirm = { sendAction(DictationForegroundService.ACTION_CONFIRM) },
                         onCancel = { sendAction(DictationForegroundService.ACTION_CANCEL) }
                     )
                 }
             }
         }
-        attachOwners(view)
+        val root = RawTouchFrame(this).apply { addView(compose) }
+        attachOwners(root)
+        rootView = root
+        windowManager.addView(root, layoutParams)
+        applyLayout()
+    }
 
-        composeView = view
-        wm.addView(view, params)
+    // --- Gestures -----------------------------------------------------------------------------
+
+    private fun onTap(onDot: Boolean) {
+        if (onDot) {
+            collapse.update { it.reduce(BubbleCollapse.Event.Expand) }
+        } else {
+            resetHold()
+            sendAction(DictationForegroundService.ACTION_START)
+        }
+    }
+
+    private fun onHoldStart() {
+        holding.value = true
+        holdReleased = false
+        holdSawRecording = false
+        sendAction(DictationForegroundService.ACTION_START)
+    }
+
+    /**
+     * Releasing always transcribes. Intents to one service arrive in order, so a release that
+     * beats the recorder still confirms after it starts, and a refused start makes the confirm a
+     * no-op.
+     */
+    private fun onHoldEnd() {
+        if (!holding.value) return
+        holdReleased = true
+        sendAction(DictationForegroundService.ACTION_CONFIRM)
+        if (holdSawRecording && DictationController.state.value != DictationUiState.Recording) resetHold()
+    }
+
+    /**
+     * Keeps the hold pill up from the start of the hold until its dictation leaves recording. A
+     * refusal ends the hold at once; otherwise the hold ends when the released recording moves on.
+     */
+    private fun trackHold(state: DictationUiState) {
+        if (!holding.value) return
+        when {
+            state is DictationUiState.Error -> resetHold()
+            state == DictationUiState.Recording -> holdSawRecording = true
+            holdSawRecording && holdReleased -> resetHold()
+        }
+    }
+
+    private fun resetHold() {
+        holding.value = false
+        holdReleased = false
+        holdSawRecording = false
     }
 
     private fun onDragStart() {
         collapse.update { it.reduce(BubbleCollapse.Event.DragStart) }
-        val params = layoutParams ?: return
-        composeView?.getLocationOnScreen(dragStartScreen)
-        dragStartX = params.x
-        dragStartY = params.y
+        val root = rootView ?: return
+        dragStartRawX = root.rawX
+        dragStartRawY = root.rawY
+        dragStartAnchor = anchor
         showDismissTarget()
     }
 
-    private fun onDrag(dx: Float, dy: Float) {
-        val params = layoutParams ?: return
-        val view = composeView ?: return
-        params.x += dx.toInt()
-        params.y += dy.toInt()
-        runCatching { windowManager?.updateViewLayout(view, params) }
-        overDismissTarget.value = isOverDismissTarget(params, view)
+    /**
+     * Moves by raw screen deltas since the drag began. Compose's positions are relative to this
+     * window, which moves under the finger, so they drift.
+     */
+    private fun onDragMove() {
+        val root = rootView ?: return
+        anchor = OverlayGeometry.clampAnchor(
+            dragStartAnchor.x + (root.rawX - dragStartRawX).toInt(),
+            dragStartAnchor.y + (root.rawY - dragStartRawY).toInt(),
+            px(OverlayShape.BUBBLE.widthDp),
+            bounds
+        )
+        applyLayout()
+        val over = isOverDismissTarget()
+        if (over && !overDismissTarget.value) haptic(entering = true)
+        overDismissTarget.value = over
     }
 
     private fun onDragEnd(dropped: Boolean) {
         val dismissed = dropped && overDismissTarget.value
         hideDismissTarget()
         if (dismissed) {
-            // Put the bubble back where the drag began, so the next field it appears for does not
-            // find it parked on top of the keyboard at the bottom of the screen.
-            layoutParams?.let { params ->
-                params.x = dragStartX
-                params.y = dragStartY
-                composeView?.let { runCatching { windowManager?.updateViewLayout(it, params) } }
-            }
-            // Only the idle bubble can be dragged, but check rather than assume: hiding a live
-            // recording pill would strand the user with no way to confirm or cancel.
-            val state = DictationController.state.value
-            if (state == DictationUiState.Idle || state is DictationUiState.Error) {
-                DictationController.setState(DictationUiState.Hidden)
-            }
+            haptic(entering = false)
+            // Back where the drag began, so the next field it appears for does not find it parked
+            // on top of the keyboard at the bottom of the screen.
+            anchor = dragStartAnchor
+            applyLayout()
+            BubbleDismissal.dismiss(preferences)
         }
         collapse.update { it.reduce(BubbleCollapse.Event.DragEnd) }
     }
 
-    /**
-     * The bubble's screen position is derived from where it was when the drag began plus how far
-     * the window has moved since, rather than re-measured: getLocationOnScreen lags a frame behind
-     * updateViewLayout. The target is measured directly, since it does not move.
-     */
-    private fun isOverDismissTarget(params: WindowManager.LayoutParams, view: View): Boolean {
+    /** A tick on first reaching the X, a firmer confirm on the drop. Honours the system setting. */
+    private fun haptic(entering: Boolean) {
+        val constant = when {
+            entering -> HapticFeedbackConstants.CLOCK_TICK
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> HapticFeedbackConstants.CONFIRM
+            else -> HapticFeedbackConstants.LONG_PRESS
+        }
+        rootView?.performHapticFeedback(constant)
+    }
+
+    private fun isOverDismissTarget(): Boolean {
         val (targetX, targetY) = dismissTargetCenter() ?: return false
         return DismissZone.isOver(
-            bubbleCenterX = dragStartScreen[0] + (params.x - dragStartX) + view.width / 2f,
-            bubbleCenterY = dragStartScreen[1] + (params.y - dragStartY) + view.height / 2f,
+            bubbleCenterX = anchor.x.toFloat(),
+            bubbleCenterY = anchor.y.toFloat(),
             targetCenterX = targetX,
             targetCenterY = targetY,
-            radiusPx = DISMISS_TARGET_SIZE.value * resources.displayMetrics.density
+            radiusPx = px(DISMISS_TARGET_SIZE).toFloat()
         )
     }
 
@@ -306,8 +474,6 @@ class OverlayBubbleService :
 
     private fun showDismissTarget() {
         if (dismissView != null) return
-        val wm = windowManager ?: return
-        val density = resources.displayMetrics.density
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -317,7 +483,7 @@ class OverlayBubbleService :
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            y = (DISMISS_BOTTOM_MARGIN_DP * density).toInt()
+            y = px(DISMISS_BOTTOM_MARGIN_DP)
         }
         val view = ComposeView(this).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
@@ -333,15 +499,78 @@ class OverlayBubbleService :
         }
         attachOwners(view)
         dismissView = view
-        runCatching { wm.addView(view, params) }.onFailure { dismissView = null }
+        runCatching { windowManager.addView(view, params) }.onFailure { dismissView = null }
     }
 
     private fun hideDismissTarget() {
-        dismissView?.let { runCatching { windowManager?.removeView(it) } }
+        dismissView?.let { runCatching { windowManager.removeView(it) } }
         dismissView = null
         dismissTargetCenter = null
         overDismissTarget.value = false
     }
+
+    // --- Star card ----------------------------------------------------------------------------
+
+    private fun showStarCard() {
+        if (starCardView != null) return
+        val policy = preferences.starPrompt
+        if (!policy.due) return
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            // Not focusable, so the keyboard and the field underneath stay as they were. Outside
+            // touches are watched so tapping away counts as "later" instead of trapping the user.
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+            PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.CENTER }
+        val compose = ComposeView(this).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+            setContent {
+                MaterialTheme {
+                    StarPromptCard(
+                        uses = policy.uses,
+                        onTakeMeThere = {
+                            preferences.starPrompt = preferences.starPrompt.finish()
+                            hideStarCard()
+                            openRepo()
+                        },
+                        onRemindLater = { remindLaterAndClose() },
+                        onDontRemind = {
+                            preferences.starPrompt = preferences.starPrompt.finish()
+                            hideStarCard()
+                        }
+                    )
+                }
+            }
+        }
+        val frame = OutsideTouchFrame(this) { remindLaterAndClose() }.apply { addView(compose) }
+        attachOwners(frame)
+        starCardView = frame
+        runCatching { windowManager.addView(frame, params) }.onFailure { starCardView = null }
+    }
+
+    private fun remindLaterAndClose() {
+        if (starCardView == null) return
+        preferences.starPrompt = preferences.starPrompt.remindLater()
+        hideStarCard()
+    }
+
+    private fun hideStarCard() {
+        starCardView?.let { runCatching { windowManager.removeView(it) } }
+        starCardView = null
+    }
+
+    /** LocalScribe makes no request itself: the browser opens the page. */
+    private fun openRepo() {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(FeedbackReport.REPO_URL))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { startActivity(intent) }.onFailure {
+            Toast.makeText(this, "No browser found. The project is at ${FeedbackReport.REPO_URL}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // --- Plumbing -----------------------------------------------------------------------------
 
     private fun attachOwners(view: View) {
         view.setViewTreeLifecycleOwner(this)
@@ -362,14 +591,47 @@ class OverlayBubbleService :
         unobservePreferences?.invoke()
         unobservePreferences = null
         hideDismissTarget()
-        composeView?.let { runCatching { windowManager?.removeView(it) } }
-        composeView = null
+        hideStarCard()
+        rootView?.let { runCatching { windowManager.removeView(it) } }
+        rootView = null
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
         super.onDestroy()
     }
 
-    private companion object {
-        const val NOTIFICATION_ID = 1002
-        const val DISMISS_BOTTOM_MARGIN_DP = 96
+    /** Records each touch's raw screen position before Compose sees it. */
+    private class RawTouchFrame(context: Context) : FrameLayout(context) {
+        var rawX = 0f
+            private set
+        var rawY = 0f
+            private set
+
+        override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+            rawX = ev.rawX
+            rawY = ev.rawY
+            return super.dispatchTouchEvent(ev)
+        }
+    }
+
+    /** Reports a touch outside the window, delivered because of FLAG_WATCH_OUTSIDE_TOUCH. */
+    private class OutsideTouchFrame(context: Context, private val onOutside: () -> Unit) : FrameLayout(context) {
+        override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+            if (ev.actionMasked == MotionEvent.ACTION_OUTSIDE) {
+                onOutside()
+                return true
+            }
+            return super.dispatchTouchEvent(ev)
+        }
+    }
+
+    companion object {
+        const val ACTION_HIDE_BUBBLE = "dev.chaseallbright.localscribe.action.HIDE_BUBBLE"
+        const val ACTION_SHOW_BUBBLE = "dev.chaseallbright.localscribe.action.SHOW_BUBBLE"
+
+        private const val NOTIFICATION_ID = 1002
+        private const val DISMISS_BOTTOM_MARGIN_DP = 96
+        private const val EDGE_MARGIN_DP = 16
+        private const val INITIAL_X = 100
+        private const val INITIAL_Y = 300
+        private const val STAR_CARD_DELAY_MS = 700L
     }
 }
