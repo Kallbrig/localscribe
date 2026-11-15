@@ -3,6 +3,7 @@ package dev.chaseallbright.localscribe.service
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.graphics.Rect
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
@@ -44,6 +45,10 @@ class DictationAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        // Published before the overlay starts, so it can add its windows as accessibility
+        // overlays: those draw above the keyboard and system bars, which ordinary app overlays
+        // cannot, so the bubble can go anywhere on screen.
+        overlayWindowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         ContextCompat.startForegroundService(this, Intent(this, OverlayBubbleService::class.java))
 
         serviceScope.launch {
@@ -202,6 +207,20 @@ class DictationAccessibilityService : AccessibilityService() {
         serviceScope.cancel()
         DictationController.setState(DictationUiState.Hidden)
         DictationController.setImeTop(null)
+        overlayWindowManager = null
+        // The system removes accessibility overlays with the service that added them, so the
+        // overlay service would be left with dead windows. It is started afresh on reconnect.
+        stopService(Intent(this, OverlayBubbleService::class.java))
         return super.onUnbind(intent)
+    }
+
+    companion object {
+        /**
+         * The connected service's window manager, or null when it is not connected. Only a window
+         * manager from an accessibility service can add `TYPE_ACCESSIBILITY_OVERLAY` windows.
+         */
+        @Volatile
+        var overlayWindowManager: WindowManager? = null
+            private set
     }
 }

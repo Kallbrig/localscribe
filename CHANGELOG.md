@@ -4,6 +4,15 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and s
 
 ## [Unreleased]
 
+### Fixed
+
+- **The bubble and dot can be dragged anywhere on the screen.** They were kept 16 dp in from
+  every edge, below the status bar, above the navigation bar and above the keyboard, which left
+  only a band at the top of the screen whenever you were typing. They now draw above the
+  keyboard and system bars, so the only limit is the edge of the display (and the camera
+  cutout), and the small dot can go right up to the edge instead of stopping where the full
+  bubble would.
+
 ## [0.2.0] - 2026-09-30
 
 **The UI Update.** Release notes: [docs/release-notes/v0.2.0.md](docs/release-notes/v0.2.0.md).

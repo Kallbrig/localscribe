@@ -80,10 +80,22 @@ flag. Verified during Phase 9 emulator testing: confirmed absent on ordinary tex
 (recording + pipeline), and `DictationAccessibilityService` (focus tracking + insertion)
 each have a distinct Android lifecycle/permission story and can't be merged: only an
 `AccessibilityService` gets a live `AccessibilityNodeInfo`, only a foreground service can
-run `AudioRecord` reliably while the app has no visible UI, and the overlay needs its own
-`TYPE_APPLICATION_OVERLAY` window. They coordinate through `DictationController`, an
+run `AudioRecord` reliably while the app has no visible UI, and the overlay owns its own
+windows and gesture lifecycle. They coordinate through `DictationController`, an
 in-process `StateFlow`/`SharedFlow` holder -- simpler than Binder/Messenger IPC since all
 three run in the same process.
+
+## Overlay windows draw above the keyboard
+
+The bubble and the drag-to-dismiss target are `TYPE_ACCESSIBILITY_OVERLAY` windows, added
+through the accessibility service's `WindowManager` (published as
+`DictationAccessibilityService.overlayWindowManager`; no other context may add that type).
+Unlike `TYPE_APPLICATION_OVERLAY`, which Android draws beneath the IME and system bars, these
+draw above them, so the bubble can be dragged anywhere on the display -- over the keyboard
+and the status and navigation bars -- with only the camera cutout kept clear. If the overlay
+service runs without the accessibility service (a sticky restart before it reconnects), it
+falls back to `TYPE_APPLICATION_OVERLAY` and keeps shapes above an open keyboard and inside
+the system bars, since they would be hidden otherwise. The star card stays an app overlay.
 
 ## Extension roadmap
 

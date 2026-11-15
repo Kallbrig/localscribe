@@ -87,8 +87,14 @@ import kotlinx.coroutines.launch
  * hold-to-record gesture's lifecycle.
  *
  * Position is a single anchor -- the bubble's centre in screen pixels. Each shape is centred on it
- * and clamped into a safe area, and the window is sized explicitly to the shape plus shadow room,
- * so nothing ever grows off the screen and the bubble returns to its spot after a dictation.
+ * and clamped into the visible area, and the window is sized explicitly to the shape plus shadow
+ * room, so nothing ever grows off the screen and the bubble returns to its spot after a dictation.
+ *
+ * The bubble and the drop target are accessibility overlays whenever the accessibility service is
+ * connected -- in practice always, since it starts this service. Those draw above the keyboard and
+ * the system bars, so the only limits on where the bubble goes are the display's edges and its
+ * camera cutout. Without the service they fall back to ordinary app overlays, which Android draws
+ * beneath the keyboard, and then shapes are kept above an open keyboard.
  */
 class OverlayBubbleService :
     Service(),
@@ -105,6 +111,11 @@ class OverlayBubbleService :
     override val viewModelStore = ViewModelStore()
 
     private lateinit var windowManager: WindowManager
+
+    /** The type of the bubble and drop-target windows; see the class comment. */
+    private var overlayType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+    private val drawnAboveKeyboard: Boolean
+        get() = overlayType == WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
     private var rootView: RawTouchFrame? = null
     private lateinit var layoutParams: WindowManager.LayoutParams
 
@@ -135,7 +146,9 @@ class OverlayBubbleService :
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
-        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        val accessibilityWindows = DictationAccessibilityService.overlayWindowManager
+        windowManager = accessibilityWindows ?: getSystemService(WINDOW_SERVICE) as WindowManager
+        if (accessibilityWindows != null) overlayType = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
         preferences = AppPreferences(this)
         style = MutableStateFlow(preferences.bubbleStyle)
         collapseDelay = MutableStateFlow(preferences.collapseDelay)
@@ -144,9 +157,8 @@ class OverlayBubbleService :
             collapseDelay.value = preferences.collapseDelay
         }
         bounds = computeBounds()
-        anchor = OverlayGeometry.clampAnchor(
-            INITIAL_X + px(OverlayShape.BUBBLE.widthDp) / 2, INITIAL_Y + px(OverlayShape.BUBBLE.widthDp) / 2, px(OverlayShape.BUBBLE.widthDp), bounds
-        )
+        val bubble = px(OverlayShape.BUBBLE.widthDp)
+        anchor = OverlayGeometry.clampAnchor(INITIAL_X + bubble / 2, INITIAL_Y + bubble / 2, bubble, bounds)
 
         // A timer may expire during a recording; the dot is only drawn when idle, so the pill
         // never changes because of it.
@@ -201,9 +213,9 @@ class OverlayBubbleService :
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        // Rotation changes the safe area; keep the bubble inside the new one.
+        // Rotation changes the visible area; keep the bubble inside the new one.
         bounds = computeBounds()
-        anchor = OverlayGeometry.clampAnchor(anchor.x, anchor.y, px(OverlayShape.BUBBLE.widthDp), bounds)
+        anchor = OverlayGeometry.clampAnchor(anchor.x, anchor.y, draggedSize(), bounds)
         applyLayout()
     }
 
@@ -242,34 +254,44 @@ class OverlayBubbleService :
     private fun px(dp: Dp): Int = px(dp.value.toInt())
 
     /**
-     * The safe area: 16 dp in from the sides, below the status bar -- a swipe there opens the
-     * notification shade -- and above the navigation bar or gesture area.
+     * Where shapes are visible. Above the keyboard that is the whole display less the camera
+     * cutout: the bubble is drawn over the system bars, and a touch that starts on it is its own,
+     * so a drag across the status bar does not open the notification shade. As an ordinary app
+     * overlay it is drawn beneath the system bars, so they are taken out too.
      */
     private fun computeBounds(): Bounds {
-        val margin = px(EDGE_MARGIN_DP)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val metrics = windowManager.currentWindowMetrics
-            val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
-                WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
-            )
+            val types = if (drawnAboveKeyboard) WindowInsets.Type.displayCutout()
+            else WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
+            val insets = metrics.windowInsets.getInsetsIgnoringVisibility(types)
             val screen = metrics.bounds
             return Bounds(
-                left = screen.left + insets.left + margin,
-                top = screen.top + insets.top + margin,
-                right = screen.right - insets.right - margin,
-                bottom = screen.bottom - insets.bottom - margin
+                left = screen.left + insets.left,
+                top = screen.top + insets.top,
+                right = screen.right - insets.right,
+                bottom = screen.bottom - insets.bottom
             )
         }
         val display = DisplayMetrics()
         @Suppress("DEPRECATION")
         windowManager.defaultDisplay.getRealMetrics(display)
+        if (drawnAboveKeyboard) return Bounds(0, 0, display.widthPixels, display.heightPixels)
         return Bounds(
-            left = margin,
-            top = systemDimension("status_bar_height") + margin,
-            right = display.widthPixels - margin,
-            bottom = display.heightPixels - systemDimension("navigation_bar_height") - margin
+            left = 0,
+            top = systemDimension("status_bar_height"),
+            right = display.widthPixels,
+            bottom = display.heightPixels - systemDimension("navigation_bar_height")
         )
     }
+
+    /**
+     * The size kept on screen while dragging: the shape actually under the finger, so the dot can
+     * go as close to an edge as the dot fits, not as close as the full bubble would.
+     */
+    private fun draggedSize(): Int = px(
+        if (shape.value == OverlayShape.DOT) OverlayShape.DOT.widthDp else OverlayShape.BUBBLE.widthDp
+    )
 
     @SuppressLint("DiscouragedApi", "InternalInsetResource")
     private fun systemDimension(name: String): Int {
@@ -278,13 +300,13 @@ class OverlayBubbleService :
     }
 
     /**
-     * [bounds] with the keyboard taken out. Application overlays are drawn beneath the IME, so
-     * anything placed over the keyboard is hidden behind it. The anchor itself is not moved: when
-     * the keyboard closes, the bubble goes back to where the user put it.
+     * [bounds], with the keyboard taken out only when shapes are drawn beneath it (the app-overlay
+     * fallback): anything placed over the keyboard would be hidden behind it. The anchor itself is
+     * not moved: when the keyboard closes, the bubble goes back to where the user put it.
      */
     private fun effectiveBounds(): Bounds {
-        val imeTop = DictationController.imeTop.value ?: return bounds
-        val bottom = imeTop - px(EDGE_MARGIN_DP)
+        if (drawnAboveKeyboard) return bounds
+        val bottom = DictationController.imeTop.value ?: return bounds
         // A keyboard that leaves no room at all (landscape, a tall IME) is ignored rather than
         // squeezing every shape into nothing.
         return if (bottom - bounds.top < px(OverlayShape.BUBBLE.heightDp) * 2) bounds
@@ -303,11 +325,9 @@ class OverlayBubbleService :
             val pad = px(SHADOW_PADDING)
             val width = px(current.widthDp)
             val height = px(current.heightDp)
-            val area = effectiveBounds()
-            // The anchor is clamped into the current area too, so a bubble placed low on the
-            // screen rides up above the keyboard instead of hiding behind it.
-            val centre = OverlayGeometry.clampAnchor(anchor.x, anchor.y, px(OverlayShape.BUBBLE.widthDp), area)
-            val topLeft = OverlayGeometry.placeCentered(centre.x, centre.y, width, height, area)
+            // Placed inside the current area, so a shape that would overhang an edge -- or, in the
+            // app-overlay fallback, sit behind the keyboard -- slides in without moving the anchor.
+            val topLeft = OverlayGeometry.placeCentered(anchor.x, anchor.y, width, height, effectiveBounds())
             layoutParams.x = topLeft.x - pad
             layoutParams.y = topLeft.y - pad
             layoutParams.width = width + pad * 2
@@ -321,7 +341,7 @@ class OverlayBubbleService :
         layoutParams = WindowManager.LayoutParams(
             1,
             1,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            overlayType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
@@ -418,7 +438,7 @@ class OverlayBubbleService :
         anchor = OverlayGeometry.clampAnchor(
             dragStartAnchor.x + (root.rawX - dragStartRawX).toInt(),
             dragStartAnchor.y + (root.rawY - dragStartRawY).toInt(),
-            px(OverlayShape.BUBBLE.widthDp),
+            draggedSize(),
             effectiveBounds()
         )
         applyLayout()
@@ -463,13 +483,14 @@ class OverlayBubbleService :
     }
 
     /**
-     * Bottom centre of the area the bubble may occupy -- above the keyboard when one is open, since
-     * the keyboard would otherwise hide the target. Computed, not measured, in the same screen
-     * coordinates as the anchor.
+     * Bottom centre of the area the bubble may occupy, lifted clear of the edge so it is not under
+     * the navigation bar or gesture handle. Computed, not measured, in the same screen coordinates
+     * as the anchor.
      */
     private fun dismissTargetCenter(): Pair<Float, Float> {
         val area = effectiveBounds()
-        return (area.left + area.width / 2f) to (area.bottom - px(DISMISS_TARGET_SIZE) / 2f)
+        val size = px(DISMISS_TARGET_SIZE)
+        return (area.left + area.width / 2f) to (area.bottom - size / 2f - size)
     }
 
     private fun showDismissTarget() {
@@ -479,7 +500,7 @@ class OverlayBubbleService :
         val params = WindowManager.LayoutParams(
             size,
             size,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            overlayType,
             // Never touchable: it is a drop zone judged by position, and must not swallow the drag.
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
@@ -632,7 +653,6 @@ class OverlayBubbleService :
         const val ACTION_SHOW_BUBBLE = "dev.chaseallbright.localscribe.action.SHOW_BUBBLE"
 
         private const val NOTIFICATION_ID = 1002
-        private const val EDGE_MARGIN_DP = 16
         private const val INITIAL_X = 100
         private const val INITIAL_Y = 300
         private const val STAR_CARD_DELAY_MS = 700L
