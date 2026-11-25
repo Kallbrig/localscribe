@@ -26,6 +26,7 @@ import dev.chaseallbright.localscribe.data.toEntity
 import dev.chaseallbright.localscribe.dictation.DictationController
 import dev.chaseallbright.localscribe.dictation.DictationUiState
 import dev.chaseallbright.localscribe.dictation.ModelSession
+import dev.chaseallbright.localscribe.dictation.deliverTranscript
 import dev.chaseallbright.localscribe.domain.DictationPipeline
 import dev.chaseallbright.localscribe.domain.FailureContext
 import dev.chaseallbright.localscribe.domain.FailureCopy
@@ -205,8 +206,17 @@ class DictationForegroundService : Service() {
                         "backend=${transcript.backend}, chars=${transcript.cleaned.length}"
                 )
 
-                database.transcriptDao().insert(transcript.toEntity())
-                DictationController.publishTranscript(transcript)
+                // The history row is a side record: a failed write must not cost the user the
+                // dictation they just spoke, which insert-before-publish used to allow.
+                deliverTranscript(
+                    transcript = transcript,
+                    save = { database.transcriptDao().insert(transcript.toEntity()) },
+                    published = { DictationController.publishTranscript(it) },
+                    onSaveFailure = { error ->
+                        Log.w(TAG, "Could not save transcript to history", error)
+                        FailureLog.record(FailureCopy.diagnosticFor(FailureContext.DICTATION, error))
+                    }
+                )
                 DictationController.setState(DictationUiState.Idle)
             } catch (e: CancellationException) {
                 DictationController.setState(DictationUiState.Idle)
