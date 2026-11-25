@@ -189,18 +189,35 @@ class CleanupModeDifferentiationTest {
 
     @Test
     fun `casual keeps word choice exact and business does not`() {
-        // The gradient: casual may fix grammar but not swap words; business may do both.
+        // Casual and Standard now share one contract, so they share one budget; only Business
+        // may replace wording, and only Business carries the permissive budget for it.
+        assertEquals(
+            "standard must not drift away from casual",
+            CleanupMode.CASUAL.policy,
+            CleanupMode.STANDARD.policy
+        )
         assertTrue(
             CleanupMode.BUSINESS.policy.maxIntroducedContentWordRatio >
                 CleanupMode.STANDARD.policy.maxIntroducedContentWordRatio
-        )
-        assertTrue(
-            CleanupMode.STANDARD.policy.maxIntroducedContentWordRatio >
-                CleanupMode.CASUAL.policy.maxIntroducedContentWordRatio
         )
         assertFalse(
             "casual must reject a synonym swap",
             TextCleanupUtils.isFaithful(dictation, businessRewrite, CleanupMode.CASUAL)
         )
+    }
+
+    @Test
+    fun `standard rejects a rewrite exactly as casual does`() {
+        assertFalse(TextCleanupUtils.isFaithful(dictation, businessRewrite, CleanupMode.CASUAL))
+        assertFalse(TextCleanupUtils.isFaithful(dictation, businessRewrite, CleanupMode.STANDARD))
+        assertTrue(TextCleanupUtils.isFaithful(dictation, businessRewrite, CleanupMode.BUSINESS))
+    }
+
+    @Test
+    fun `standard still accepts the grammar fix casual accepts`() {
+        val cleaned = "So I was gonna call you yesterday, but I totally forgot. Sorry about that."
+
+        assertTrue(TextCleanupUtils.isFaithful(dictation, cleaned, CleanupMode.CASUAL))
+        assertTrue(TextCleanupUtils.isFaithful(dictation, cleaned, CleanupMode.STANDARD))
     }
 }

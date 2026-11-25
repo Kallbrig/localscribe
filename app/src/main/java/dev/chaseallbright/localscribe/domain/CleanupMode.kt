@@ -4,15 +4,20 @@ package dev.chaseallbright.localscribe.domain
  * How much rewriting a mode is allowed to do before its output stops being a faithful edit
  * of the dictation and starts being the model's own composition.
  *
- * A flat rule cannot serve every mode. The four modes are a deliberate gradient in *what is
- * allowed to change*, and the vocabulary budget is what enforces it:
+ * A flat rule cannot serve every mode. They are a gradient in *what is allowed to change*,
+ * and the vocabulary budget is what enforces it:
  *
- * | Mode     | Grammar & punctuation | Word choice        |
- * |----------|-----------------------|--------------------|
- * | Informal | left alone            | exact              |
- * | Casual   | corrected             | exact              |
- * | Standard | corrected             | tightened          |
- * | Business | corrected             | rewritten/polished |
+ * | Mode     | Grammar & punctuation | Word choice                   |
+ * |----------|-----------------------|-------------------------------|
+ * | Informal | left alone            | exact                         |
+ * | Casual   | corrected             | exact                         |
+ * | Standard | corrected             | exact, repeats collapsed      |
+ * | Business | corrected             | rewritten/polished            |
+ *
+ * Casual and Standard are deliberately close -- both keep the speaker's words and differ only
+ * by Standard collapsing repeats -- so they share one budget and neither can drift into a
+ * rewrite. Business is the outlier: the only mode permitted to replace wording, and the only
+ * one with the permissive budget that makes that possible.
  *
  * The guards that stop the model *answering* the dictation rather than editing it are not
  * part of this policy; they apply to every mode unconditionally. See [TextCleanupUtils].
@@ -78,13 +83,18 @@ enum class CleanupMode(
     ),
     STANDARD(
         displayName = "Standard",
-        description = "Grammar fixed and wording tightened up.",
+        description = "Grammar fixed, with repeated words collapsed. Your exact words kept.",
         usesLlm = true,
-        instruction = "Correct grammar, punctuation and capitalisation, remove filler and " +
-            "stumbles, and tighten loose or repetitive wording. Keep the speaker's tone and " +
-            "meaning; this is a tidy-up, not a rewrite.",
-        exampleOutput = "So I was going to call you yesterday, but I completely forgot. Sorry about that.",
-        policy = FaithfulnessPolicy(0.35, maxLengthRatio = 1.50, maxLengthSlack = 60)
+        instruction = "Fix grammar, punctuation and capitalisation, remove filler and " +
+            "stumbles, and collapse words or phrases repeated twice in a row. Keep the " +
+            "speaker's exact word choices -- including slang and contractions -- and never " +
+            "swap a word for a synonym. Change how it is punctuated and trimmed, not which " +
+            "words are used.",
+        // Near-identical to casual on purpose: one intensifier dropped, no synonym swapped.
+        exampleOutput = "So I was gonna call you yesterday, but I forgot. Sorry about that.",
+        // Deliberately the same budget as Casual: same contract, so same tolerance. A
+        // separate, looser budget is what let standard drift into business-style rewrites.
+        policy = FaithfulnessPolicy(0.15, maxLengthRatio = 1.30, maxLengthSlack = 40)
     ),
     BUSINESS(
         displayName = "Business",
