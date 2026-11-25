@@ -95,7 +95,17 @@ object DictationController {
     /** An editable field gained focus -- including a second field while already Idle. */
     fun onFieldFocused() = wake.onFieldFocused()
 
-    suspend fun publishTranscript(transcript: Transcript) {
+    /**
+     * Delivers [transcript] to the accessibility service that owns the focused field.
+     *
+     * Returns false when nothing is collecting. The flow has no replay, so an emit with no
+     * subscriber is dropped -- and the accessibility service can be unbound mid-dictation
+     * (permissions revoked, service toggled off, process recycled). Callers must treat false
+     * as "not delivered" and fall back to the clipboard rather than assume the text landed.
+     */
+    suspend fun publishTranscript(transcript: Transcript): Boolean {
+        if (_transcriptReady.subscriptionCount.value == 0) return false
         _transcriptReady.emit(transcript)
+        return true
     }
 }

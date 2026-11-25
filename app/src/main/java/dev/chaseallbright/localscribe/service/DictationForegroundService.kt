@@ -26,6 +26,7 @@ import dev.chaseallbright.localscribe.data.toEntity
 import dev.chaseallbright.localscribe.dictation.DictationController
 import dev.chaseallbright.localscribe.dictation.DictationUiState
 import dev.chaseallbright.localscribe.dictation.ModelSession
+import dev.chaseallbright.localscribe.dictation.TextInsertion
 import dev.chaseallbright.localscribe.dictation.deliverTranscript
 import dev.chaseallbright.localscribe.domain.DictationPipeline
 import dev.chaseallbright.localscribe.domain.FailureContext
@@ -42,6 +43,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Mic-type foreground service: owns the recorder and drives the transcribe -> cleanup pipeline. */
 class DictationForegroundService : Service() {
@@ -208,15 +210,25 @@ class DictationForegroundService : Service() {
 
                 // The history row is a side record: a failed write must not cost the user the
                 // dictation they just spoke, which insert-before-publish used to allow.
+                var delivered = false
                 deliverTranscript(
                     transcript = transcript,
                     save = { database.transcriptDao().insert(transcript.toEntity()) },
-                    published = { DictationController.publishTranscript(it) },
+                    published = { delivered = DictationController.publishTranscript(it) },
                     onSaveFailure = { error ->
                         Log.w(TAG, "Could not save transcript to history", error)
                         FailureLog.record(FailureCopy.diagnosticFor(FailureContext.DICTATION, error))
                     }
                 )
+                if (!delivered) {
+                    // The accessibility service is what owns the focused field; with it gone
+                    // there is no field to insert into, so the clipboard is the only tier that
+                    // can still work. Same code path TextInsertion uses when both insert
+                    // attempts fail, so the user sees the same "paste manually" toast.
+                    withContext(Dispatchers.Main) {
+                        TextInsertion.insert(applicationContext, null, transcript.cleaned)
+                    }
+                }
                 DictationController.setState(DictationUiState.Idle)
             } catch (e: CancellationException) {
                 DictationController.setState(DictationUiState.Idle)
