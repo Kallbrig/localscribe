@@ -34,12 +34,9 @@ class AppPreferences(context: Context) {
         set(value) = prefs.edit().putString(KEY_CLEANUP_TIER, value.id).apply()
 
     var cleanupMode: CleanupMode
-        // A stored Casual (offered by earlier versions) resolves to Standard, which is what it
-        // now behaves like. See [CleanupMode.forSettings].
-        get() = CleanupMode.forSettings(
-            prefs.getString(KEY_CLEANUP_MODE, null)
-                ?.let { name -> runCatching { CleanupMode.valueOf(name) }.getOrNull() }
-        )
+        // A stored name this build no longer offers resolves to Standard. See
+        // [CleanupMode.fromStoredName].
+        get() = CleanupMode.fromStoredName(prefs.getString(KEY_CLEANUP_MODE, null))
         set(value) = prefs.edit().putString(KEY_CLEANUP_MODE, value.name).apply()
 
     var recordingLimit: RecordingLimit

@@ -1,46 +1,34 @@
 package dev.chaseallbright.localscribe.domain
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Test
 
 /**
- * Settings offers only the modes that actually differ. Casual is retained as an enum value
- * because transcripts and imports name it, but it behaves exactly like Standard, so showing
- * both was two names for one choice.
+ * Two modes reach Settings. A name from another version resolves to the default instead of
+ * becoming an invisible selection or failing to resolve.
  */
 class CleanupModeSelectionTest {
 
     @Test
-    fun `settings offers informal, standard and business but not casual`() {
-        assertEquals(
-            listOf(CleanupMode.INFORMAL, CleanupMode.STANDARD, CleanupMode.BUSINESS),
-            CleanupMode.selectable
-        )
-        assertFalse(CleanupMode.CASUAL in CleanupMode.selectable)
+    fun `settings offers exactly informal and standard`() {
+        assertEquals(listOf(CleanupMode.INFORMAL, CleanupMode.STANDARD), CleanupMode.entries)
     }
 
     @Test
-    fun `a stored casual resolves to standard`() {
-        assertEquals(CleanupMode.STANDARD, CleanupMode.forSettings(CleanupMode.CASUAL))
-    }
-
-    @Test
-    fun `offered modes are returned unchanged`() {
-        CleanupMode.selectable.forEach { mode ->
-            assertEquals(mode, CleanupMode.forSettings(mode))
-        }
+    fun `a name this build does not offer resolves to standard`() {
+        assertEquals(CleanupMode.STANDARD, CleanupMode.fromStoredName("SOME_RETIRED_MODE"))
+        assertEquals(CleanupMode.STANDARD, CleanupMode.fromStoredName("SOME_FUTURE_MODE"))
     }
 
     @Test
     fun `an unset preference gets standard as the default`() {
-        assertEquals(CleanupMode.STANDARD, CleanupMode.forSettings(null))
+        assertEquals(CleanupMode.STANDARD, CleanupMode.fromStoredName(null))
     }
 
     @Test
-    fun `the retired mode still resolves from its stored name`() {
-        // History and imported archives store the enum's name, not the display label, so the
-        // entry must survive under "CASUAL" for those rows to keep resolving.
-        assertEquals(CleanupMode.CASUAL, CleanupMode.valueOf("CASUAL"))
+    fun `offered names resolve to themselves`() {
+        CleanupMode.entries.forEach { mode ->
+            assertEquals(mode, CleanupMode.fromStoredName(mode.name))
+        }
     }
 }

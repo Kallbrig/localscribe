@@ -6,12 +6,11 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and s
 
 ### Changed
 
-- **Standard now keeps your exact words.** Standard used to reword slightly as it tidied; it now
-  shares Casual's rules -- grammar and punctuation fixed, repeated words collapsed -- and only
-  Business rephrases what you said.
-- **Cleanup style now lists three options instead of four.** Casual differed from Standard only
-  by a full stop when the cleanup model was not installed, so it has been folded into Standard.
-  Transcripts made with Casual still show Casual in History.
+- **Two cleanup styles instead of four.** Standard now keeps your exact words -- grammar and
+  punctuation fixed, repeated words collapsed -- and no longer rephrases. The other two styles
+  were folded into it: one differed only by a full stop when the cleanup model was not
+  installed, and the other was the only one that rewrote your wording. Transcripts made with
+  either now show Standard in History.
 
 ### Fixed
 

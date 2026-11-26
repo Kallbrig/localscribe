@@ -114,7 +114,7 @@ class TranscriptArchiveTest {
     }
 
     @Test
-    fun `an unknown mode is kept rather than dropping the transcript`() {
+    fun `an unknown mode is kept as standard rather than dropping the transcript`() {
         val json = """
             {"format":"localscribe-export","version":1,"transcripts":[
               {"createdAt":123,"raw":"a","cleaned":"a","language":"en",
@@ -124,8 +124,8 @@ class TranscriptArchiveTest {
 
         val decoded = TranscriptArchive.decode(json)
 
-        assertEquals("the text is the valuable part; an enum growing must not lose it", 1, decoded.transcripts.size)
-        assertEquals("SOME_FUTURE_MODE", decoded.transcripts.single().mode)
+        assertEquals("the text is the valuable part; an enum change must not lose it", 1, decoded.transcripts.size)
+        assertEquals("an unknown name resolves to the default", "STANDARD", decoded.transcripts.single().mode)
     }
 
     @Test

@@ -44,7 +44,7 @@ fun TranscriptEntity.toDomain(): Transcript =
         cleaned = cleaned,
         language = language,
         durationSeconds = durationSeconds,
-        mode = CleanupMode.valueOf(mode),
+        mode = CleanupMode.fromStoredName(mode),
         backend = runCatching { CleanupBackend.valueOf(cleanupBackend) }
             .getOrDefault(CleanupBackend.UNKNOWN),
         transcribeMillis = transcribeMillis,

@@ -351,8 +351,7 @@ private fun Context.shareText(text: String) {
  * unlabelled figure was read as the latter when it was the former.
  */
 private fun footerFor(entry: TranscriptEntity, basicCleanup: Boolean): String {
-    val style = runCatching { CleanupMode.valueOf(entry.mode).displayName }
-        .getOrDefault(entry.mode.lowercase().replaceFirstChar { it.uppercase() })
+    val style = CleanupMode.fromStoredName(entry.mode).displayName
 
     return buildString {
         append(formatTimestamp(entry.createdAtEpochMillis))

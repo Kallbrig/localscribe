@@ -59,7 +59,7 @@ object TranscriptArchive {
                     .put("cleaned", entity.cleaned)
                     .put("language", entity.language)
                     .put("durationSeconds", entity.durationSeconds.toDouble())
-                    .put("mode", entity.mode)
+                    .put("mode", CleanupMode.fromStoredName(entity.mode).name)
                     .put("cleanupBackend", entity.cleanupBackend)
                     .put("transcribeMillis", entity.transcribeMillis)
                     .put("cleanupMillis", entity.cleanupMillis)
@@ -70,8 +70,8 @@ object TranscriptArchive {
 
     /**
      * Reads an archive. A row referencing a mode or backend this build does not know is kept
-     * rather than dropped -- the text is the valuable part, and an export from a newer build
-     * should not lose transcripts just because an enum grew.
+     * rather than dropped -- the text is the valuable part -- and its mode resolves to the
+     * default so a name from another version cannot reappear in new history rows.
      */
     fun decode(json: String): Archive {
         val root = runCatching { JSONObject(json) }
@@ -110,7 +110,7 @@ object TranscriptArchive {
                     cleaned = cleaned,
                     language = row.optString("language", "unknown"),
                     durationSeconds = row.optDouble("durationSeconds", 0.0).toFloat(),
-                    mode = row.optString("mode").ifBlank { CleanupMode.STANDARD.name },
+                    mode = CleanupMode.fromStoredName(row.optString("mode")).name,
                     cleanupBackend = row.optString("cleanupBackend").ifBlank { CleanupBackend.UNKNOWN.name },
                     // Absent in archives written before timings were kept; zero reads as "unknown".
                     transcribeMillis = row.optLong("transcribeMillis", 0L),

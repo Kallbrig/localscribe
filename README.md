@@ -16,7 +16,7 @@ the two.
 
 - Local speech-to-text with `whisper.cpp` (ggml models), no cloud calls
 - A small local Qwen 2.5 GGUF model through `llama.cpp` for cleanup
-- Informal, casual, standard, and business cleanup modes
+- Informal and standard cleanup modes
 - Custom vocabulary supplied to Whisper's prompt and preserved through cleanup
 - RAM-tiered model selection with resumable, verified downloads
 - Three-tier text insertion: direct field insertion, then clipboard+paste, then

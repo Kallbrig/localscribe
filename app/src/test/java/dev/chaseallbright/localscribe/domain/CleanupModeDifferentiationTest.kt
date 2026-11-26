@@ -2,57 +2,51 @@ package dev.chaseallbright.localscribe.domain
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Informal and business used to produce near-identical text. The prompt was only half the
- * cause; the dominant one was [TextCleanupUtils.isFaithful] rejecting any output that
- * introduced more than 30% new content words -- which is precisely what a business rewrite
- * is -- so business silently fell back to the mode-blind [RuleBasedCleaner].
- *
- * These lock in that a genuine business rewrite survives while the guards that actually
- * matter (never answering the dictation, never inventing facts) still hold in every mode.
+ * Two modes, one contract: keep the speaker's words. They differ in who does the work --
+ * Informal is deterministic, Standard sends the text to the model -- so both must reject a
+ * rewrite and both must hold the invariants that stop a model answering the dictation.
  */
 class CleanupModeDifferentiationTest {
 
-    private val dictation = "um so i was gonna call you yesterday but i totally forgot sorry about that"
+    private val dictation = "um so I'm gonna call you tomorrow, but I haven't haven't checked the schedule yet"
 
-    /** The rewrite that motivated this work: rejected at 50% new content words under the old flat rule. */
-    private val businessRewrite = "I intended to call you yesterday, but it slipped my mind. My apologies."
+    /** A rewrite rather than an edit: it swaps most of the speaker's words for synonyms. */
+    private val rewrite = "I intended to telephone you tomorrow, though I have not reviewed my agenda."
 
     @Test
-    fun `business accepts a genuine professional rewrite`() {
-        assertTrue(
-            "A business rewrite is the whole point of the mode; it must not be rejected",
-            TextCleanupUtils.isFaithful(dictation, businessRewrite, CleanupMode.BUSINESS)
+    fun `standard rejects a rewrite as too heavy a hand`() {
+        assertFalse(
+            "Standard keeps the speaker's exact words, so a synonym swap is a rewrite",
+            TextCleanupUtils.isFaithful(dictation, rewrite, CleanupMode.STANDARD)
         )
     }
 
     @Test
-    fun `informal rejects the same rewrite as too heavy a hand`() {
+    fun `informal rejects the same rewrite`() {
         assertFalse(
-            "Informal is supposed to preserve the speaker's own words",
-            TextCleanupUtils.isFaithful(dictation, businessRewrite, CleanupMode.INFORMAL)
+            "Informal is the least permissive mode and must not accept a paraphrase",
+            TextCleanupUtils.isFaithful(dictation, rewrite, CleanupMode.INFORMAL)
         )
     }
 
     @Test
     fun `informal output is the speaker's own words in a texting register`() {
         assertEquals(
-            RuleBasedCleaner().clean("Hey man, what's going on?", CleanupMode.INFORMAL, emptyList()).text,
-            "hey man what's going on"
+            "hey man what's going on",
+            RuleBasedCleaner().clean("Hey man, what's going on?", CleanupMode.INFORMAL, emptyList()).text
         )
     }
 
     @Test
-    fun `the worked example from the diagnosis now survives business`() {
-        val source = "um so I was thinking like maybe we could uh push the deadline back a week you know"
-        val edited = "I propose we extend the deadline by one week."
-
-        assertFalse(TextCleanupUtils.isFaithful(source, edited, CleanupMode.INFORMAL))
-        assertTrue(TextCleanupUtils.isFaithful(source, edited, CleanupMode.BUSINESS))
+    fun `standard collapses a repeated word while keeping the rest`() {
+        assertEquals(
+            "So I'm gonna call you tomorrow, but I haven't checked the schedule yet.",
+            RuleBasedCleaner().clean(dictation, CleanupMode.STANDARD, emptyList()).text
+        )
     }
 
     @Test
@@ -83,10 +77,10 @@ class CleanupModeDifferentiationTest {
     fun `no mode may invent a number that was not dictated`() {
         CleanupMode.entries.forEach { mode ->
             assertFalse(
-                "$mode allowed a fabricated figure through",
+                "$mode accepted a fabricated figure",
                 TextCleanupUtils.isFaithful(
-                    "revenue was up a lot this quarter",
-                    "Revenue increased by 42% this quarter.",
+                    "123 people attended the meeting",
+                    "one hundred twenty three people attended the meeting",
                     mode
                 )
             )
@@ -94,130 +88,71 @@ class CleanupModeDifferentiationTest {
     }
 
     @Test
-    fun `numbers that were dictated survive being reformatted`() {
+    fun `numbers that were dictated are kept`() {
         assertTrue(
             TextCleanupUtils.isFaithful(
-                "we shipped 3 builds last week",
-                "We shipped 3 builds last week.",
-                CleanupMode.BUSINESS
+                "we shipped 12 builds this quarter",
+                "We shipped 12 builds this quarter.",
+                CleanupMode.STANDARD
             )
         )
     }
 
     @Test
     fun `no mode may balloon the transcript`() {
-        val source = "the sky is blue"
-        val padded = "the sky is blue because of Rayleigh scattering of sunlight in the atmosphere"
+        val source = "hello there"
+        val padded = "this is a very long sentence that says the same thing but with many more words added in"
         CleanupMode.entries.forEach { mode ->
             assertFalse("$mode allowed an explanatory expansion", TextCleanupUtils.isFaithful(source, padded, mode))
         }
     }
 
-    /**
-     * Regression: the length cap was `max(len * ratio, len + 80)` with a flat slack, so at a
-     * typical 74-character dictation both business and standard capped at 154 characters and
-     * business's stricter ratio never applied. "Concise" was asserted in a comment only.
-     */
     @Test
-    fun `business rejects padding that standard tolerates at ordinary dictation length`() {
-        val source = "we should probably get the thing sorted out before the end of the week"
-        // Padded with the source's own words so the vocabulary threshold cannot fire and the
-        // length rule is the only thing under test.
-        val padded = "$source before the end of the week"
-
+    fun `standard tolerates punctuation and capitalisation on a short dictation`() {
         assertTrue(
-            "standard's looser policy should still accept this",
-            TextCleanupUtils.isFaithful(source, padded, CleanupMode.STANDARD)
-        )
-        assertFalse(
-            "business must not let the text grow",
-            TextCleanupUtils.isFaithful(source, padded, CleanupMode.BUSINESS)
+            "the length slack exists so terminal punctuation is not punished",
+            TextCleanupUtils.isFaithful("send the report today", "Send the report today.", CleanupMode.STANDARD)
         )
     }
 
     @Test
-    fun `business tolerates punctuation and capitalisation on a short dictation`() {
+    fun `standard allows more vocabulary change than informal`() {
         assertTrue(
-            "the length slack has to leave room for terminal punctuation",
-            TextCleanupUtils.isFaithful("send the report today", "Send the report today.", CleanupMode.BUSINESS)
+            CleanupMode.STANDARD.policy.maxIntroducedContentWordRatio >
+                CleanupMode.INFORMAL.policy.maxIntroducedContentWordRatio
         )
     }
 
     @Test
-    fun `business is the most permissive and informal the least`() {
-        val ratios = CleanupMode.entries.associateWith { it.policy.maxIntroducedContentWordRatio }
-
-        assertTrue(ratios.getValue(CleanupMode.BUSINESS) > ratios.getValue(CleanupMode.STANDARD))
-        assertTrue(ratios.getValue(CleanupMode.STANDARD) > ratios.getValue(CleanupMode.INFORMAL))
-    }
-
-    @Test
-    fun `each LLM mode sends a distinct instruction and example`() {
-        val llmModes = CleanupMode.entries.filter { it.usesLlm }
-        val instructions = llmModes.map { it.instruction }
-        val examples = CleanupMode.entries.map { it.exampleOutput }
-
-        assertEquals("instructions must not be shared between modes", instructions.size, instructions.toSet().size)
-        assertEquals("examples must not be shared between modes", examples.size, examples.toSet().size)
-        assertTrue("every LLM mode needs a brief", instructions.none { it.isBlank() })
+    fun `standard accepts the grammar fix it is meant to produce`() {
+        val cleaned = "So I'm gonna call you tomorrow, but I haven't checked the schedule yet."
+        assertTrue(TextCleanupUtils.isFaithful(dictation, cleaned, CleanupMode.STANDARD))
     }
 
     @Test
     fun `informal never reaches the model at all`() {
         var generatorCalled = false
-        val result = QwenCleaner { _, _ -> generatorCalled = true; "Hey man, what's up?" }
-            .clean("hey man what's going on", CleanupMode.INFORMAL, emptyList())
+        val cleaner = QwenCleaner { _: String, _: Int -> generatorCalled = true; "anything" }
+        val result = cleaner.clean("Hey man, what's going on?", CleanupMode.INFORMAL, emptyList())
 
-        assertFalse("informal must not spend a model call it will only reject", generatorCalled)
+        assertFalse("informal is deterministic by design", generatorCalled)
         assertEquals(CleanupBackend.VERBATIM, result.backend)
-        assertEquals("hey man what's going on", result.text)
     }
 
     @Test
-    fun `the prompt differs between the LLM modes`() {
-        var casualPrompt = ""
-        var businessPrompt = ""
-        QwenCleaner { prompt, _ -> casualPrompt = prompt; "ok" }
-            .clean(dictation, CleanupMode.CASUAL, emptyList())
-        QwenCleaner { prompt, _ -> businessPrompt = prompt; "ok" }
-            .clean(dictation, CleanupMode.BUSINESS, emptyList())
-
-        assertNotEquals(casualPrompt, businessPrompt)
-        assertTrue(businessPrompt.contains(CleanupMode.BUSINESS.exampleOutput))
-        assertFalse(businessPrompt.contains(CleanupMode.CASUAL.exampleOutput))
+    fun `only standard reaches the model`() {
+        assertEquals(listOf(CleanupMode.STANDARD), CleanupMode.entries.filter { it.usesLlm })
+        assertTrue("the LLM mode needs a brief", CleanupMode.STANDARD.instruction.isNotBlank())
+        assertTrue("informal has no brief because it never reaches a model", CleanupMode.INFORMAL.instruction.isBlank())
     }
 
     @Test
-    fun `casual keeps word choice exact and business does not`() {
-        // Casual and Standard now share one contract, so they share one budget; only Business
-        // may replace wording, and only Business carries the permissive budget for it.
-        assertEquals(
-            "standard must not drift away from casual",
-            CleanupMode.CASUAL.policy,
-            CleanupMode.STANDARD.policy
-        )
-        assertTrue(
-            CleanupMode.BUSINESS.policy.maxIntroducedContentWordRatio >
-                CleanupMode.STANDARD.policy.maxIntroducedContentWordRatio
-        )
-        assertFalse(
-            "casual must reject a synonym swap",
-            TextCleanupUtils.isFaithful(dictation, businessRewrite, CleanupMode.CASUAL)
-        )
-    }
+    fun `the standard prompt carries its brief and example`() {
+        var prompt = ""
+        QwenCleaner { text: String, _: Int -> prompt = text; "ok" }
+            .clean(dictation, CleanupMode.STANDARD, emptyList())
 
-    @Test
-    fun `standard rejects a rewrite exactly as casual does`() {
-        assertFalse(TextCleanupUtils.isFaithful(dictation, businessRewrite, CleanupMode.CASUAL))
-        assertFalse(TextCleanupUtils.isFaithful(dictation, businessRewrite, CleanupMode.STANDARD))
-        assertTrue(TextCleanupUtils.isFaithful(dictation, businessRewrite, CleanupMode.BUSINESS))
-    }
-
-    @Test
-    fun `standard still accepts the grammar fix casual accepts`() {
-        val cleaned = "So I was gonna call you yesterday, but I totally forgot. Sorry about that."
-
-        assertTrue(TextCleanupUtils.isFaithful(dictation, cleaned, CleanupMode.CASUAL))
-        assertTrue(TextCleanupUtils.isFaithful(dictation, cleaned, CleanupMode.STANDARD))
+        assertTrue(prompt.contains(CleanupMode.STANDARD.instruction))
+        assertTrue(prompt.contains(CleanupMode.STANDARD.exampleOutput))
     }
 }

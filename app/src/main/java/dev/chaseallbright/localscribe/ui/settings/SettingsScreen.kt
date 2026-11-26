@@ -217,7 +217,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         }
 
         SettingsSection(title = "Cleanup style") {
-            CleanupMode.selectable.forEach { mode ->
+            CleanupMode.entries.forEach { mode ->
                 RadioOptionRow(
                     selected = cleanupMode == mode,
                     title = mode.displayName,

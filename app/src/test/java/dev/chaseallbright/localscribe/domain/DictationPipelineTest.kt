@@ -43,7 +43,7 @@ class DictationPipelineTest {
             cleaner = Cleaner { text, _, _ -> CleanResult(text, CleanupBackend.RULES) }
         )
 
-        val result = pipeline.process(samples, CleanupMode.CASUAL, emptyList())
+        val result = pipeline.process(samples, CleanupMode.STANDARD, emptyList())
 
         assertEquals(2.0f, result.durationSeconds, 0.001f)
     }

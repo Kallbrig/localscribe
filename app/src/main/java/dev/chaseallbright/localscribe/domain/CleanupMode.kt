@@ -1,57 +1,44 @@
 package dev.chaseallbright.localscribe.domain
 
 /**
- * How much rewriting a mode is allowed to do before its output stops being a faithful edit
- * of the dictation and starts being the model's own composition.
+ * How much rewriting a mode may do before its output stops being a faithful edit of the
+ * dictation and starts being the model's own composition.
  *
- * A flat rule cannot serve every mode. They are a gradient in *what is allowed to change*,
- * and the vocabulary budget is what enforces it:
+ * Two modes, and they differ in who does the work rather than in how much latitude they get.
+ * Informal never touches a model: it preserves the speaker's register and only drops
+ * disfluencies. Standard sends the text to the local model with a brief that fixes grammar and
+ * collapses repeats without replacing words. Both keep the speaker's exact word choices, so
+ * neither is allowed to rewrite.
  *
- * | Mode     | Grammar & punctuation | Word choice                   |
- * |----------|-----------------------|-------------------------------|
- * | Informal | left alone            | exact                         |
- * | Casual   | corrected             | exact                         |
- * | Standard | corrected             | exact, repeats collapsed      |
- * | Business | corrected             | rewritten/polished            |
+ * The vocabulary budget is what enforces that. It is tight in both modes, so a synonym swap is
+ * rejected and the output falls back to the deterministic [RuleBasedCleaner].
  *
- * Casual and Standard are deliberately close -- both keep the speaker's words and differ only
- * by Standard collapsing repeats -- so they share one budget and neither can drift into a
- * rewrite. Settings therefore offers three of the four: Informal, Standard and Business. Casual
- * is retained so rows and imports written by earlier versions keep their label, and resolves to
- * Standard in Settings. Business is the outlier: the only mode permitted to replace wording, and
- * the only one with the permissive budget that makes that possible.
- *
- * The guards that stop the model *answering* the dictation rather than editing it are not
- * part of this policy; they apply to every mode unconditionally. See [TextCleanupUtils].
+ * The guards that stop a model *answering* the dictation rather than editing it are not part of
+ * this policy; they apply to every mode unconditionally. See [TextCleanupUtils].
  */
 data class FaithfulnessPolicy(
-    /** Share of the edited text's content words that may be words the dictation never used. */
+    /** Share of the edited text's content words that the dictation never contained. */
     val maxIntroducedContentWordRatio: Double,
-    /** Ceiling on how much longer the edit may be than the dictation. */
+    /** How much longer than the dictation the edit may be. */
     val maxLengthRatio: Double,
     /**
-     * Absolute headroom in characters, applied as `max(len * ratio, len + slack)`.
-     *
-     * Short dictations need some, or punctuation and capitalisation alone can breach a ratio.
-     * But it has to vary per mode: a flat 80 characters swamps the ratio entirely at ordinary
-     * dictation lengths -- at 74 characters it puts the cap at 154 either way, which made
-     * business's stricter ratio inert and identical to standard's.
+     * Absolute headroom in characters, so `max(ratio, slack)` never punishes a short dictation
+     * for terminal punctuation and capitalisation alone.
      */
     val maxLengthSlack: Int
 )
 
 private const val EXAMPLE_DICTATION =
-    "um so i was gonna call you yesterday but i totally forgot sorry about that"
+    "um I'm gonna call you tomorrow, but I haven't haven't checked the schedule yet"
 
 enum class CleanupMode(
     val displayName: String,
     /** Shown in Settings. */
     val description: String,
     /**
-     * Whether this mode runs the local LLM at all. Informal does not: its contract is the
-     * speaker's own words, which [VerbatimFormatter] delivers deterministically. A model
-     * cannot be reliably talked out of tidying, and rejecting its tidying after the fact
-     * costs a model load to reach the same result.
+     * Whether the mode runs the local LLM. Informal does not: its contract is the speaker's
+     * register, and [VerbatimFormatter] delivers that deterministically. A model only gets
+     * rejected for tidying it, so loading one would be wasted work.
      */
     val usesLlm: Boolean,
     /** Sent to the model as the mode's editing brief. Unused when [usesLlm] is false. */
@@ -65,72 +52,34 @@ enum class CleanupMode(
         description = "Your words, as you said them. Texting register, no tidying.",
         usesLlm = false,
         instruction = "",
-        exampleOutput = "so i was gonna call you yesterday but i totally forgot sorry about that",
-        // Retained so isFaithful stays meaningful if informal is ever routed through a model
-        // again. Effectively zero: informal introducing a word at all means it rewrote.
-        policy = FaithfulnessPolicy(0.05, maxLengthRatio = 1.15, maxLengthSlack = 20)
-    ),
-    CASUAL(
-        displayName = "Casual",
-        description = "Grammar and punctuation fixed. Your exact words kept.",
-        usesLlm = true,
-        instruction = "Fix grammar, punctuation and capitalisation, and remove filler and " +
-            "stumbles. Keep the speaker's exact word choices -- including slang and " +
-            "contractions -- and never swap a word for a synonym. Change how it is punctuated, " +
-            "not which words are used.",
-        exampleOutput = "So I was gonna call you yesterday, but I totally forgot. Sorry about that.",
-        // Tight: casual correcting grammar should barely introduce vocabulary at all, and what
-        // it does introduce is mostly function words, which are not counted.
-        policy = FaithfulnessPolicy(0.15, maxLengthRatio = 1.30, maxLengthSlack = 40)
+        exampleOutput = "um I'm gonna call you tomorrow, but I haven't haven't checked the schedule yet",
+        // Tightest policy in the app. Informally, "faithful" means the words survived, so any
+        // introduced content word is a rewrite rather than an edit.
+        policy = FaithfulnessPolicy(0.05, maxLengthRatio = 1.30, maxLengthSlack = 40)
     ),
     STANDARD(
         displayName = "Standard",
-        description = "Grammar fixed, with repeated words collapsed. Your exact words kept.",
+        description = "Grammar and punctuation fixed. Your exact words kept.",
         usesLlm = true,
-        instruction = "Fix grammar, punctuation and capitalisation, remove filler and " +
-            "stumbles, and collapse words or phrases repeated twice in a row. Keep the " +
-            "speaker's exact word choices -- including slang and contractions -- and never " +
-            "swap a word for a synonym. Change how it is punctuated and trimmed, not which " +
-            "words are used.",
-        // Near-identical to casual on purpose: one intensifier dropped, no synonym swapped.
-        exampleOutput = "So I was gonna call you yesterday, but I forgot. Sorry about that.",
-        // Deliberately the same budget as Casual: same contract, so same tolerance. A
-        // separate, looser budget is what let standard drift into business-style rewrites.
+        instruction = "Fix grammar, punctuation and capitalisation, and remove filler and " +
+            "stumbles. Collapse words or phrases repeated twice in a row. Keep the speaker's " +
+            "exact word choices -- including slang and contractions -- and never swap a word " +
+            "for a synonym. Change how it is punctuated and trimmed, not which words are used.",
+        exampleOutput = "I'm gonna call you tomorrow, but I haven't checked the schedule yet.",
+        // Tight: correcting grammar should barely introduce vocabulary at all. A looser budget
+        // is what lets a model drift from tidying into rewriting.
         policy = FaithfulnessPolicy(0.15, maxLengthRatio = 1.30, maxLengthSlack = 40)
-    ),
-    BUSINESS(
-        displayName = "Business",
-        description = "Polished and concise professional phrasing.",
-        usesLlm = true,
-        instruction = "Rewrite as polished professional communication. Replace casual phrasing and " +
-            "slang with precise professional wording, remove hedging and filler, and make it " +
-            "concise. Keep the same meaning, intent and facts -- change how it is said, never " +
-            "what is said.",
-        exampleOutput = "I intended to call you yesterday, but it slipped my mind. My apologies.",
-        // Permissive on vocabulary by design -- that is the mode's whole job -- and held tight
-        // on length instead, since "polished and concise" should never grow the text.
-        policy = FaithfulnessPolicy(0.70, maxLengthRatio = 1.20, maxLengthSlack = 20)
     );
 
-    /** The one-shot pair shown to the model for this mode. */
     val exampleDictation: String get() = EXAMPLE_DICTATION
 
     companion object {
         /**
-         * The modes Settings offers. Casual is deliberately absent: it now behaves exactly like
-         * Standard (same brief, same budgets, same fallback path), so offering both was two
-         * names for one choice. The value is kept -- not deleted -- because transcripts and
-         * imports written by earlier versions record it by name, and `HistoryScreen` resolves
-         * that name with `valueOf`. Deleting the entry would fail those rows.
+         * Resolves a stored mode name. Names are matched against the enum, so a name this build
+         * does not offer -- written by an older version or a newer one -- resolves to
+         * [STANDARD], the default, rather than becoming an invisible selection or failing.
          */
-        val selectable: List<CleanupMode> = listOf(INFORMAL, STANDARD, BUSINESS)
-
-        /**
-         * The mode Settings should show for a stored value. A retired mode collapses to the one
-         * it now behaves like, so an install that had Casual selected shows Standard instead of
-         * an invisible selection; null (never chosen) gets the default.
-         */
-        fun forSettings(stored: CleanupMode?): CleanupMode =
-            stored?.takeIf { it in selectable } ?: STANDARD
+        fun fromStoredName(name: String?): CleanupMode =
+            entries.firstOrNull { it.name == name } ?: STANDARD
     }
 }
