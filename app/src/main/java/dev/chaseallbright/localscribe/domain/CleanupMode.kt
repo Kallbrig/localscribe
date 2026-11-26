@@ -16,8 +16,10 @@ package dev.chaseallbright.localscribe.domain
  *
  * Casual and Standard are deliberately close -- both keep the speaker's words and differ only
  * by Standard collapsing repeats -- so they share one budget and neither can drift into a
- * rewrite. Business is the outlier: the only mode permitted to replace wording, and the only
- * one with the permissive budget that makes that possible.
+ * rewrite. Settings therefore offers three of the four: Informal, Standard and Business. Casual
+ * is retained so rows and imports written by earlier versions keep their label, and resolves to
+ * Standard in Settings. Business is the outlier: the only mode permitted to replace wording, and
+ * the only one with the permissive budget that makes that possible.
  *
  * The guards that stop the model *answering* the dictation rather than editing it are not
  * part of this policy; they apply to every mode unconditionally. See [TextCleanupUtils].
@@ -112,4 +114,23 @@ enum class CleanupMode(
 
     /** The one-shot pair shown to the model for this mode. */
     val exampleDictation: String get() = EXAMPLE_DICTATION
+
+    companion object {
+        /**
+         * The modes Settings offers. Casual is deliberately absent: it now behaves exactly like
+         * Standard (same brief, same budgets, same fallback path), so offering both was two
+         * names for one choice. The value is kept -- not deleted -- because transcripts and
+         * imports written by earlier versions record it by name, and `HistoryScreen` resolves
+         * that name with `valueOf`. Deleting the entry would fail those rows.
+         */
+        val selectable: List<CleanupMode> = listOf(INFORMAL, STANDARD, BUSINESS)
+
+        /**
+         * The mode Settings should show for a stored value. A retired mode collapses to the one
+         * it now behaves like, so an install that had Casual selected shows Standard instead of
+         * an invisible selection; null (never chosen) gets the default.
+         */
+        fun forSettings(stored: CleanupMode?): CleanupMode =
+            stored?.takeIf { it in selectable } ?: STANDARD
+    }
 }
