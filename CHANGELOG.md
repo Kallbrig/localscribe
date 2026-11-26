@@ -4,6 +4,21 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and s
 
 ## [Unreleased]
 
+### Changed
+
+- **Casual and Standard now keep your exact words.** Standard used to reword slightly as it
+  tidied; it now works like Casual -- grammar and punctuation fixed, repeated words collapsed --
+  and only Business rephrases what you said.
+
+### Fixed
+
+- **A finished dictation is no longer lost when saving it to History fails.** The text is still
+  inserted, or copied with the "paste manually" message if it cannot be; only the History row
+  goes missing.
+- **A finished dictation is no longer lost if the accessibility service has gone away** while it
+  was being recorded. The text goes to the clipboard with the same message instead of
+  disappearing.
+
 ## [0.2.0] - 2026-09-30
 
 **The UI Update.** Release notes: [docs/release-notes/v0.2.0.md](docs/release-notes/v0.2.0.md).
